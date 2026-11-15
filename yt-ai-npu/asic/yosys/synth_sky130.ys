@@ -1,0 +1,43 @@
+# =============================================================================
+# Yosys Standalone Gate-Level Synthesis Script (`synth_sky130.ys`)
+# Synthesizes `yt_npu_top` (all 26 SystemVerilog files) to gate-level netlist
+# and prints full cell/MAC/SRAM area & gate-count statistics.
+# =============================================================================
+
+read_verilog -sv ../../rtl/pkg/yt_npu_pkg.sv
+read_verilog -sv ../../rtl/pkg/yt_isa_pkg.sv
+read_verilog -sv ../../rtl/mem/yt_sram_1r1w.sv
+read_verilog -sv ../../rtl/mem/yt_pingpong_wgt.sv
+read_verilog -sv ../../rtl/gemm/yt_mac_w8a16.sv
+read_verilog -sv ../../rtl/gemm/yt_pe.sv
+read_verilog -sv ../../rtl/gemm/yt_systolic_array.sv
+read_verilog -sv ../../rtl/gemm/yt_gemm_engine.sv
+read_verilog -sv ../../rtl/ops/yt_rsqrt_lut.sv
+read_verilog -sv ../../rtl/ops/yt_exp_lut.sv
+read_verilog -sv ../../rtl/ops/yt_recip_lut.sv
+read_verilog -sv ../../rtl/ops/yt_gelu_lut.sv
+read_verilog -sv ../../rtl/ops/yt_layernorm_engine.sv
+read_verilog -sv ../../rtl/ops/yt_softmax_engine.sv
+read_verilog -sv ../../rtl/ops/yt_gelu_engine.sv
+read_verilog -sv ../../rtl/ops/yt_vec_engine.sv
+read_verilog -sv ../../rtl/ops/yt_embed_engine.sv
+read_verilog -sv ../../rtl/ops/yt_topk_sampler.sv
+read_verilog -sv ../../rtl/bus/yt_axi_lite_regs.sv
+read_verilog -sv ../../rtl/bus/yt_axi_dma_rd.sv
+read_verilog -sv ../../rtl/bus/yt_axi_dma_wr.sv
+read_verilog -sv ../../rtl/ctrl/yt_scoreboard.sv
+read_verilog -sv ../../rtl/ctrl/yt_ucode_fetch.sv
+read_verilog -sv ../../rtl/ctrl/yt_ucode_decode.sv
+read_verilog -sv ../../rtl/ctrl/yt_token_sequencer.sv
+read_verilog -sv ../../rtl/yt_npu_top.sv
+
+hierarchy -check -top yt_npu_top
+proc
+opt
+fsm
+opt
+memory -nomap
+opt
+synth -top yt_npu_top
+stat
+write_verilog -noattr ../output/yt_npu_top_synth.v

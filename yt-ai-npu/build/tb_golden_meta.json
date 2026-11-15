@@ -1,0 +1,10 @@
+{
+  "single_tok_prompt": 7454,
+  "expected_1layer_greedy_tok": 356,
+  "wte_deq_u16": 712,
+  "wpe_deq_u16": 722,
+  "lm_mult_u8": 178,
+  "lm_shift_u8": 14,
+  "ucode_full_len": 684,
+  "ucode_1layer_len": 110
+}
