@@ -1,0 +1,13 @@
+{
+  "DESIGN_NAME": "yt_pe",
+  "VERILOG_FILES": [
+    "dir::../../rtl/gemm/yt_mac_w8a16.sv",
+    "dir::../../rtl/gemm/yt_pe.sv"
+  ],
+  "PDK": "sky130A",
+  "STD_CELL_LIBRARY": "sky130_fd_sc_hd",
+  "CLOCK_PORT": "clk",
+  "CLOCK_PERIOD": 10.0,
+  "FP_SIZING": "absolute",
+  "DIE_AREA": [0, 0, 160, 160]
+}

@@ -1,4 +1,4 @@
-"""Reference INT8 GEMM matching RTL systolic array behavior."""
+"""Reference INT8 GEMM which matches RTL systolic array behavior."""
 import numpy as np
 from .quant import clamp_i32, sat_add_i32, requantize, clamp_i8
 

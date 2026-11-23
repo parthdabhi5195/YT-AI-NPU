@@ -12,58 +12,58 @@ module gemm_ctrl
     import npu_pkg::*;
     import isa_pkg::*;
 #(
-    parameter int ARRAY_M     = 16,
-    parameter int ARRAY_N     = 16,
-    parameter int DATA_W      = 8,
-    parameter int ACC_W       = 32,
-    parameter int SRAM_ADDR_W = 16
+    parameter int ARRAY_M     = 16, // systolic array dimensions
+    parameter int ARRAY_N     = 16, // array timensions
+    parameter int DATA_W      = 8, // INT8 
+    parameter int ACC_W       = 32, // INT32 accumulate
+    parameter int SRAM_ADDR_W = 16 // 16 bit addresses (upto 64KB SRAM0)
 )(
-    input  wire                          clk,
-    input  wire                          rst_n,
+    input  wire                          clk, // clock
+    input  wire                          rst_n, // reset on active low
 
-    // Command interface
-    input  wire                          cmd_valid,
-    input  wire  [15:0]                  cmd_src0,
-    input  wire  [15:0]                  cmd_src1,
-    input  wire  [15:0]                  cmd_dst,
-    input  wire  [15:0]                  cmd_M,
-    input  wire  [15:0]                  cmd_N,
-    input  wire  [15:0]                  cmd_K,
-    input  wire  [7:0]                   cmd_flags,
-    input  wire  [15:0]                  cmd_imm,
+    // Command interface from ucode_decode
+    input  wire                          cmd_valid, // 1 cycle pulse to start new GEMM
+    input  wire  [15:0]                  cmd_src0, // SRAM0 byte address for A
+    input  wire  [15:0]                  cmd_src1, // SRAM0 byte address for B
+    input  wire  [15:0]                  cmd_dst, // SRAM0 destination address for output
+    input  wire  [15:0]                  cmd_M, // Matrix dimension M
+    input  wire  [15:0]                  cmd_N, // Matrix dimension N
+    input  wire  [15:0]                  cmd_K, // Matrix dimension K
+    input  wire  [7:0]                   cmd_flags, // bit flags (transpose, or requant)
+    input  wire  [15:0]                  cmd_imm, // packs scale (low byte) and shift for requant
 
     // SRAM read port (one byte per cycle, 1-cycle read latency)
-    output logic                         sram_rd_en,
-    output logic [SRAM_ADDR_W-1:0]       sram_rd_addr,
-    input  wire  [DATA_W-1:0]            sram_rd_data,
+    output logic                         sram_rd_en, // read enable
+    output logic [SRAM_ADDR_W-1:0]       sram_rd_addr, // read address
+    input  wire  [DATA_W-1:0]            sram_rd_data, // read data
 
     // SRAM write port (one byte per cycle, no latency)
-    output logic                         sram_wr_en,
-    output logic [SRAM_ADDR_W-1:0]       sram_wr_addr,
-    output logic [DATA_W-1:0]            sram_wr_data,
+    output logic                         sram_wr_en, // write enable
+    output logic [SRAM_ADDR_W-1:0]       sram_wr_addr, // write address
+    output logic [DATA_W-1:0]            sram_wr_data, // write data
 
     // ACC SRAM interface (for K-tiling accumulation)
-    output logic                         acc_rd_en,
-    output logic [7:0]                   acc_rd_addr,
-    input  wire  signed [ACC_W-1:0]      acc_rd_data,
-    output logic                         acc_wr_en,
-    output logic [7:0]                   acc_wr_addr,
-    output logic signed [ACC_W-1:0]      acc_wr_data,
+    output logic                         acc_rd_en, // read enable for INT32
+    output logic [7:0]                   acc_rd_addr, // read address for INT32
+    input  wire  signed [ACC_W-1:0]      acc_rd_data, // read INT32 partial sum data from ACC SRAM
+    output logic                         acc_wr_en, // write enable to ACC SRAM
+    output logic [7:0]                   acc_wr_addr, // write address to ACC SRAM
+    output logic signed [ACC_W-1:0]      acc_wr_data, // write INT32 partial sum to ACC SRAM
 
     // Systolic array interface
-    output logic                         sa_clear,
-    output logic                         sa_en,
-    output logic signed [DATA_W-1:0]     sa_a_col [ARRAY_M],
-    output logic signed [DATA_W-1:0]     sa_b_row [ARRAY_N],
-    input  wire  signed [ACC_W-1:0]      sa_acc   [ARRAY_M][ARRAY_N],
+    output logic                         sa_clear, // resets all 256 accumulators in the systolic array
+    output logic                         sa_en, // shifts data one step through systolic array
+    output logic signed [DATA_W-1:0]     sa_a_col [ARRAY_M], // 16 A bytes fed into left edge each cycle
+    output logic signed [DATA_W-1:0]     sa_b_row [ARRAY_N], // 16 B bytes fed into top edge each cycle
+    input  wire  signed [ACC_W-1:0]      sa_acc   [ARRAY_M][ARRAY_N], // 16x16 grid of INT32 results coming out of array
 
     // Status
-    output logic                         busy,
-    output logic                         done
+    output logic                         busy, // high while working
+    output logic                         done // done when finished
 );
 
     // =========================================================================
-    // State machine
+    // 10 step State machine
     // =========================================================================
     typedef enum logic [3:0] {
         ST_IDLE,
@@ -78,7 +78,7 @@ module gemm_ctrl
         ST_DONE
     } state_t;
 
-    state_t state, state_next;
+    state_t state, state_next; // state is current state, state_next is the state for next clock cycle
 
     // =========================================================================
     // Registered command fields
@@ -90,7 +90,7 @@ module gemm_ctrl
     logic [7:0]  r_scale, r_shift;
 
     // Effective dimensions for current tile (clamped to array size)
-    logic [4:0]  m_eff, n_eff, k_eff;
+    logic [4:0]  m_eff, n_eff, k_eff; // actual rows and columns in current tile
 
     // =========================================================================
     // Tile counters
@@ -99,16 +99,16 @@ module gemm_ctrl
     logic [3:0] m_tiles_r, n_tiles_r, k_tiles_r;  // total tiles per dimension
 
     // Tile base addresses (precomputed in ST_TILE_SETUP)
-    logic [15:0] a_tile_base, b_tile_base, c_tile_base;
+    logic [15:0] a_tile_base, b_tile_base, c_tile_base; // starting SRAM0 addresses for current tile
 
     // Store phase for 2-phase ACC read-modify-write
-    logic store_phase;
+    logic store_phase; // toggles 0 -> 1 during multi-K stores
 
     // =========================================================================
     // Internal buffers: A[ARRAY_M][ARRAY_N], B[ARRAY_N][ARRAY_N]
     // =========================================================================
-    logic signed [DATA_W-1:0] buf_a [ARRAY_M][ARRAY_N];
-    logic signed [DATA_W-1:0] buf_b [ARRAY_N][ARRAY_N];
+    logic signed [DATA_W-1:0] buf_a [ARRAY_M][ARRAY_N]; // local flip-flop scratchpads holding current 16x16 tiles of A
+    logic signed [DATA_W-1:0] buf_b [ARRAY_N][ARRAY_N]; // current 16x16 tiles of B
 
     // =========================================================================
     // Counters
@@ -550,6 +550,16 @@ module gemm_ctrl
             endcase
         end
     end
+
+// for m_tile in range(ceil(M / 16)):
+//  for n_tile in range(ceil(N / 16)):
+//    for k_tile in range(ceil(K / 16)):
+//     1. Load a 16x16 chunk of A from SRAM0 into buf_a
+//      2. Load a 16x16 chunk of B from SRAM0 into buf_b (transposing if requested)
+//      3. Clear the 16x16 systolic array accumulators
+//      4. Stream A and B diagonally into the systolic array
+//      5. Save results (either to ACC SRAM if more K tiles remain,
+//         or requantize to INT8 and write to SRAM0 if this is the final K tile)
 
 endmodule
 

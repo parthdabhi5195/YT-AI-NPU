@@ -11,28 +11,33 @@ package isa_pkg;
     // =========================================================================
     // Opcodes
     // =========================================================================
+    // Opcodes are the literal values inside a memory address that physically 
+    // activate the circuits they are responsible for
     typedef enum logic [7:0] {
-        OP_NOP        = 8'd0,
-        OP_DMA_LOAD   = 8'd1,
-        OP_DMA_STORE  = 8'd2,
-        OP_GEMM       = 8'd3,
-        OP_VEC        = 8'd4,
+        OP_NOP        = 8'd0, // do nothing
+        OP_DMA_LOAD   = 8'd1, // pull data from DDR to SRAM
+        OP_DMA_STORE  = 8'd2, // push results back to DDR
+        OP_GEMM       = 8'd3, // run matrix multiplication on systolic array
+        OP_VEC        = 8'd4, // element-wise vector math like residual adds or scaling
         OP_SOFTMAX    = 8'd5,
         OP_LAYERNORM  = 8'd6,
         OP_GELU       = 8'd7,
         OP_KV_APPEND  = 8'd8,
         OP_KV_READ    = 8'd9,
-        OP_BARRIER    = 8'd10,
+        OP_BARRIER    = 8'd10, // pause until active engines finish
         OP_RMSNORM    = 8'd11,
         OP_ROPE       = 8'd12,
         OP_SILU       = 8'd13,
-        OP_END        = 8'd255
+        OP_END        = 8'd255 // halt execution
     } opcode_t;
 
     // =========================================================================
-    // Flag Bits
+    // Flag Bits [15:8]
     // =========================================================================
-    parameter int FLAG_TRANSPOSE_B = 0;
+    // Flags basically tweak how an opcode behaves without needing extra opcodes
+    // first 8 bits go to specific harware engine, then the next 8 bits are
+    // read by that specific engine
+    parameter int FLAG_TRANSPOSE_B = 0; // transpose matrix for multiplication
     parameter int FLAG_BIAS_EN     = 1;
     parameter int FLAG_REQUANT     = 2;
     parameter int FLAG_RELU        = 3;
@@ -41,11 +46,12 @@ package isa_pkg;
     parameter int FLAG_PINGPONG    = 6;
 
     // DMA sub-types (flags[2:0] for DMA_LOAD/DMA_STORE)
-    parameter int DMA_ACT   = 0;
+    // uses bottom 3 bits to select which DDR base address and which on-chip SRAM bufffer to connect
+    parameter int DMA_ACT   = 0; // moves activations between DDR and SRAM banks
     parameter int DMA_WGT   = 1;
     parameter int DMA_KV    = 2;
-    parameter int DMA_OUT   = 3;
-    parameter int DMA_UCODE = 4;
+    parameter int DMA_OUT   = 3; // writes final computed model results from on-chip SRAM out to DDR
+    parameter int DMA_UCODE = 4; // loads the NPU's microcode from DDR to instruction memory
 
     // VEC sub-operations (flags[1:0] for VEC)
     parameter int VEC_ADD         = 0;

@@ -118,3 +118,10 @@ module banked_sram #(
 endmodule
 
 `default_nettype wire
+
+// without this, the NPU has to pause computing, load weights from slow external RAM onto on-chip memory, run math, and repeat
+// creates two separate copies of memory side by side
+// Buffer 0 (Ping) the math engine reads from here to do calculations
+// Buffer 1 (Pong) at the exact same time, the loader writes the next layers weights here
+// when math finishes, they flip a one bit switch and swap buffers, so loading and computing can overlap
+// banked because instead of making each buffer one giant 16 kb block, it splits each buffer into 4 smaller 4 kb chunks, since smaller memory blocks are faster and easier to build on real silicon.

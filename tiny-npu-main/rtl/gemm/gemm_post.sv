@@ -177,3 +177,9 @@ module gemm_post
 endmodule
 
 `default_nettype wire
+
+// this file takes a 16 x 16 block of raw 32 bit answers and cleans them up one by one, into 8 bit numbers doing up to three things
+    // 1. adding bias (optional)
+    // 2. add ReLU (optional), turning any number into 0
+    // 3. shrink back to INT8, scales and shifts the big 32 bit number down so it fits into range of -128...+127
+    

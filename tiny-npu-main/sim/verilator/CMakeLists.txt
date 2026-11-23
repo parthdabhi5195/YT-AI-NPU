@@ -1,3 +1,8 @@
+# ---- Summary ---- #
+# Allows testing chip piece by piece instead of entire thing at once via terminal
+# Makefile builds only top-level file, whereas this compiles 8 seperate sim units
+# ---- #
+
 cmake_minimum_required(VERSION 3.12)
 project(npu_sim)
 
@@ -12,6 +17,7 @@ set(RTL_DIR ${CMAKE_CURRENT_SOURCE_DIR}/../../rtl)
 set(SIM_DIR ${CMAKE_CURRENT_SOURCE_DIR})
 
 # Shared RTL sources (packages, memory, compute engines)
+# Groups hardware blocks found in all tests
 set(SV_COMMON
     ${RTL_DIR}/pkg/npu_pkg.sv
     ${RTL_DIR}/pkg/isa_pkg.sv
@@ -38,6 +44,7 @@ set(SV_COMMON
 )
 
 # Top-level sim sources (includes bus, ctrl, full top)
+# Heavy external bus and DMA interfaces. Separated, so smaller tests run faster
 set(SV_TOP_EXTRA
     ${RTL_DIR}/bus/axi_types.sv
     ${RTL_DIR}/bus/axi_lite_regs.sv
@@ -54,6 +61,7 @@ set(SV_TOP_EXTRA
     ${RTL_DIR}/top.sv
 )
 
+# Mirrors VERILATOR_FLAGS from Makefile and the warning supressions
 set(VERILATOR_COMMON_ARGS
     --cc
     --trace
@@ -79,9 +87,10 @@ set(VERILATOR_COMMON_ARGS
     -I${RTL_DIR}/ops
 )
 
+# Pairs a C++ testbench with a specific SystemVerilog wrapper .sv for each target.
 # ---- Target 1: Control Plane Smoke Test (original top-level) ----
 add_executable(npu_sim tb_top.cpp)
-
+# testing AXI4-Lite registers, AXI4 DMA, and NOP microcode on top.sv
 verilate(npu_sim
     SOURCES ${SV_COMMON} ${SV_TOP_EXTRA}
     TOP_MODULE top
@@ -91,7 +100,7 @@ verilate(npu_sim
 
 # ---- Target 2: Engine Compute Tests ----
 add_executable(engine_sim tb_engines.cpp)
-
+# Testing gelu, softamx, layernorm, vec, and systolic_array
 verilate(engine_sim
     SOURCES ${SV_COMMON} ${SIM_DIR}/engine_tb_top.sv
     TOP_MODULE engine_tb_top
@@ -100,6 +109,7 @@ verilate(engine_sim
 )
 
 # Control plane RTL needed for integration test (without bus/AXI/top.sv)
+# lightweight microcode control logic (separated from heavy SV_TOP_EXTRA)
 set(SV_CTRL
     ${RTL_DIR}/ctrl/scoreboard.sv
     ${RTL_DIR}/ctrl/barrier.sv
@@ -109,7 +119,7 @@ set(SV_CTRL
 
 # ---- Target 3: Integration Test (single attention head) ----
 add_executable(integration_sim tb_integration.cpp)
-
+# Adds Integrating SV_CTRL around softmax_engine to test single attention head
 verilate(integration_sim
     SOURCES ${SV_COMMON} ${SV_CTRL} ${SIM_DIR}/integration_top.sv
     TOP_MODULE integration_top
@@ -119,7 +129,7 @@ verilate(integration_sim
 
 # ---- Target 4: GPT-2 Transformer Block Test ----
 add_executable(gpt2_block_sim tb_gpt2_block.cpp)
-
+# testing transformer and overriding hardware parameters
 verilate(gpt2_block_sim
     SOURCES ${SV_COMMON} ${SV_CTRL} ${SIM_DIR}/gpt2_block_top.sv
     TOP_MODULE gpt2_block_top
@@ -144,7 +154,7 @@ verilate(demo_infer
 # ---- Target 6: KV Cache Correctness Test ----
 # Verifies that KV-cached decode produces bit-exact results vs full-recompute
 add_executable(kv_cache_sim tb_kv_cache_sim.cpp)
-
+# Key-Value Testing
 verilate(kv_cache_sim
     SOURCES ${SV_COMMON} ${SV_CTRL} ${SIM_DIR}/gpt2_block_top.sv
     TOP_MODULE gpt2_block_top

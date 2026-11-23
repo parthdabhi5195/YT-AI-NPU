@@ -1,5 +1,7 @@
 // =============================================================================
 // NPU Package - Global parameters, types, and utility functions
+// Master config header for entire NPU hardware design. Defines the chip's physical dimensions
+// memory layout, control registers, and math rules, so all hardware speaks same language
 // =============================================================================
 `ifndef NPU_PKG_SV
 `define NPU_PKG_SV
@@ -9,6 +11,7 @@ package npu_pkg;
     // =========================================================================
     // Systolic Array
     // =========================================================================
+    // 16 x 16 systolic array = 256 MACs (256 math operations every clock cycle)
     parameter int ARRAY_M       = 16;
     parameter int ARRAY_N       = 16;
     parameter int NUM_MACS      = ARRAY_M * ARRAY_N; // 256
@@ -16,6 +19,8 @@ package npu_pkg;
     // =========================================================================
     // Data Widths
     // =========================================================================
+    // 128-bit AXI data bus to pull model weights from DDR memory onto SRAM
+    // 32-bit AXI-lite data bus
     parameter int DATA_W        = 8;   // INT8 activations & weights
     parameter int ACC_W         = 32;  // INT32 accumulators
     parameter int INTER_W       = 16;  // INT16 intermediates
@@ -29,12 +34,14 @@ package npu_pkg;
     // =========================================================================
     // SRAM Configuration
     // =========================================================================
+    // splits memory into separate banks: 4 for activations, 4 for weights, 2 for accumulators
+    // to read and write outputs simuntaneously 
     parameter int SRAM_ADDR_W   = 16;
     parameter int ACT_BANKS     = 4;
     parameter int WGT_BANKS     = 4;
     parameter int ACC_BANKS     = 2;
     parameter int BANK_DEPTH    = 4096;  // entries per bank
-    parameter int UCODE_DEPTH   = 1024;
+    parameter int UCODE_DEPTH   = 1024; // allocates this much for microcode instructions
 
     // =========================================================================
     // Model Config (Tiny validation defaults)
@@ -58,7 +65,7 @@ package npu_pkg;
     // Engine IDs
     // =========================================================================
     parameter int NUM_ENGINES = 6;
-
+    // assigns a 3 bit ID to each specialized hardware block to know which block to execute
     typedef enum logic [2:0] {
         ENG_GEMM      = 3'd0,
         ENG_SOFTMAX   = 3'd1,
@@ -73,6 +80,7 @@ package npu_pkg;
     // =========================================================================
     // AXI-Lite Register Map
     // =========================================================================
+    // Memory mapped addresses that a host CPU uses to configure and launch NPU
     parameter logic [AXIL_ADDR_W-1:0] REG_CTRL          = 32'h00;
     parameter logic [AXIL_ADDR_W-1:0] REG_STATUS        = 32'h04;
     parameter logic [AXIL_ADDR_W-1:0] REG_UCODE_BASE    = 32'h08;
@@ -102,6 +110,7 @@ package npu_pkg;
     // =========================================================================
 
     // Saturate to signed N-bit range
+    // prevent wrapping
     function automatic logic signed [7:0] saturate_i8(input logic signed [31:0] val);
         if (val > 127)
             return 8'sd127;
@@ -111,6 +120,7 @@ package npu_pkg;
             return val[7:0];
     endfunction
 
+    // doing same for 16 bit value
     function automatic logic signed [15:0] saturate_i16(input logic signed [31:0] val);
         if (val > 32767)
             return 16'sd32767;
@@ -121,8 +131,11 @@ package npu_pkg;
     endfunction
 
     // Requantize: (acc * scale) >> shift with round-to-nearest, clamp to int8
+    // during matrix multiplication, NPU multiplies 8-bit weights and activations, adding them together
+    // into 32 bit accumulators. Before sending that result to the next layer, it must shrink back down to
+    // 8 bit without losing accuracy.
     function automatic logic signed [7:0] requantize(
-        input logic signed [31:0] acc,
+        input logic signed [31:0] acc, // signed sum from systolic array
         input logic        [7:0]  scale,
         input logic        [7:0]  shift
     );
@@ -143,6 +156,7 @@ package npu_pkg;
     endfunction
 
     // Saturating 32-bit add
+    // handles overflow cleanly 
     function automatic logic signed [31:0] sat_add_i32(
         input logic signed [31:0] a,
         input logic signed [31:0] b

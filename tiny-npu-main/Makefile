@@ -1,18 +1,40 @@
 # =============================================================================
 # NPU - Transformer Inference Accelerator
 # Top-level Makefile
+
+# CLI entry point for linting SystemVerilog RTL (Register Transfer Level),
+# compiling AXI SoC shell (top.sv) into C++ simulation, running Python Golden
+# unit tests, and generating helper artifacts. Turns .sv and C++ into runnable
+# executable.
 # =============================================================================
 
+# ---- Definitions ----#
+# • make sim (Default): Compiles all 32 SystemVerilog files and the C++ testbench (tb_top.cpp) into a single executable (build/Vtop), then runs the hardware simulation with waveform tracing turned on.
+# • make cmake_sim: An alternative multi-threaded build path using CMake to compile all simulation targets.
+# • make lint: Checks all SystemVerilog files for syntax and hardware design errors without building an executable.
+# • make test: Runs end-to-end Python "golden model" tests to verify the mathematical accuracy of the NPU design.
+# • make luts & make ucode: Runs Python helper scripts to generate Lookup Table (LUT) memory files (for functions like Softmax, GELU, and LayerNorm) and test microcode.
+# • make wave: Runs the simulation and copies the resulting .vcd waveform file into waves/ so you can inspect hardware signals in GTKWave.
+# • make clean: Deletes all compiled binaries, waveforms, generated LUTs, and Python cache files.
 # Directories
-RTL_DIR     := rtl
-SIM_DIR     := sim/verilator
-PY_DIR      := python
-BUILD_DIR   := build
-WAVE_DIR    := waves
-LUT_DIR     := rtl/ops
+# := immediately expanded variable (no recursive expansion)
+RTL_DIR     := rtl # root dir for all SystemVerilog packages
+SIM_DIR     := sim/verilator # dir holding C++ testbenches and CMakeLists.txt
+PY_DIR      := python # root dir for Python golden models, tools, and tests
+BUILD_DIR   := build # output dir for Verilator C++ translation
+WAVE_DIR    := waves # destination folder where make wave copies npu_sim.vcd
+LUT_DIR     := rtl/ops # output directory where make luts places .mem ROMs
 
 # Verilator
-VERILATOR   ?= verilator
+VERILATOR   ?= verilator # assigns verlilator if VERILATOR is not defined
+# --cc: C++ classes
+# --trace: VCD waveform tracing
+# --trace-structs: trace structures (keep visible in waveforms)
+# -Wall: enable all warnings
+# -Wno-UNUSED -Wno-UNDRIVEN -Wno-PINCONNECTEMPTY: disable specific warnings
+# --x-assign unique --x-initial unique: X-assign unique so unreset flip-flops don't hide under accidental 0s
+# -DSIMULATION: define simulation macro
+# -I$(RTL_DIR)/pkg -I$(RTL_DIR)/bus -I$(RTL_DIR)/mem: include paths
 VERILATOR_FLAGS := --cc --trace --trace-structs -Wall \
     -Wno-UNUSED -Wno-UNDRIVEN -Wno-PINCONNECTEMPTY \
     --x-assign unique --x-initial unique \
@@ -27,6 +49,7 @@ SV_PKG := \
     $(RTL_DIR)/pkg/fixed_pkg.sv \
     $(RTL_DIR)/bus/axi_types.sv
 
+# lists 28 RTL .sv files bottom up (child nodes before parent nodes)
 SV_SRC := \
     $(RTL_DIR)/bus/axi_lite_regs.sv \
     $(RTL_DIR)/bus/axi_dma_rd.sv \
@@ -67,6 +90,7 @@ TOP_MODULE := top
 PYTHON ?= python3
 
 # Targets
+# marks action names to run make
 .PHONY: all sim test luts wave clean lint help cmake_sim
 
 all: sim
@@ -77,6 +101,8 @@ sim: $(BUILD_DIR)/Vtop
 	cd $(BUILD_DIR) && ./Vtop +trace
 	@echo "=== Simulation Complete ==="
 
+# make checks modfications timestamps of all 32 .sv files + 1 tb.cpp file and rebuild if changed
+# Building happens in two stages: 1. Verilator compiles SV -> C++ (obj_dir). 2. C++ code is compiled + linked into a single executable Vtop
 $(BUILD_DIR)/Vtop: $(ALL_SV) $(TB_CPP)
 	@mkdir -p $(BUILD_DIR)
 	$(VERILATOR) $(VERILATOR_FLAGS) \
@@ -89,6 +115,7 @@ $(BUILD_DIR)/Vtop: $(ALL_SV) $(TB_CPP)
 	cp $(BUILD_DIR)/obj_dir/Vtop $(BUILD_DIR)/Vtop
 
 # ---- CMake-based Verilator build ----
+# Builds all 8 CMake targets
 cmake_sim:
 	@mkdir -p $(BUILD_DIR)/cmake
 	cd $(BUILD_DIR)/cmake && cmake ../../$(SIM_DIR) && make -j$$(nproc)

@@ -7,25 +7,25 @@
 module systolic_array #(
     parameter int M      = 16,   // rows
     parameter int N      = 16,   // cols
-    parameter int DATA_W = 8,
-    parameter int ACC_W  = 32
+    parameter int DATA_W = 8, // INT8 for input element
+    parameter int ACC_W  = 32 // INT32 for accumulate
 )(
-    input  wire                        clk,
-    input  wire                        rst_n,
-    input  wire                        clear_acc,
-    input  wire                        en,
+    input  wire                        clk, // clock
+    input  wire                        rst_n, // reset
+    input  wire                        clear_acc, // clear accumulate
+    input  wire                        en, // enable
     // Input: one column of A per row, one row of B per column
-    input  wire  signed [DATA_W-1:0]   a_col  [M],
-    input  wire  signed [DATA_W-1:0]   b_row  [N],
+    input  wire  signed [DATA_W-1:0]   a_col  [M], // A array of size M with INT8 values
+    input  wire  signed [DATA_W-1:0]   b_row  [N], // B column
     // Output: MxN accumulator grid
-    output logic signed [ACC_W-1:0]    acc_out [M][N],
+    output logic signed [ACC_W-1:0]    acc_out [M][N], // 2D unpacked array of 16x16 signed INT32 values
     output logic                       acc_valid
 );
 
     // Internal wiring
-    logic signed [DATA_W-1:0] a_wire [M][N+1];
-    logic signed [DATA_W-1:0] b_wire [M+1][N];
-    logic signed [ACC_W-1:0]  pe_acc [M][N];
+    logic signed [DATA_W-1:0] a_wire [M][N+1]; // horizontal wires connecting PEs left to right 17 columns of wires for N
+    logic signed [DATA_W-1:0] b_wire [M+1][N]; // vertical wires connecting PEs top to bottom
+    logic signed [ACC_W-1:0]  pe_acc [M][N]; // 2D array holding INT32 accumulator output
 
     // Connect inputs
     genvar gi, gj;
@@ -73,10 +73,11 @@ module systolic_array #(
     // Latency = K_depth (streaming) + M + N - 2 (wave propagation) + 2 (MAC pipeline)
     // We track with a shift register driven externally
     // For now, provide a simple counter-based valid
-    localparam int DRAIN_LATENCY = M + N;
-    localparam int CNT_W = $clog2(DRAIN_LATENCY+1);
-    logic [CNT_W-1:0] valid_cnt;
-    localparam [CNT_W-1:0] DRAIN_MAX = CNT_W'(DRAIN_LATENCY);
+    // track when the data reaches the bottom right corner
+    localparam int DRAIN_LATENCY = M + N; // 16 cycles for A to travel east and 16 cycles for B to travel south
+    localparam int CNT_W = $clog2(DRAIN_LATENCY+1); // counts how many wires needed to count to 32, which is 6
+    logic [CNT_W-1:0] valid_cnt; // hardware register that holds the count of the cycles
+    localparam [CNT_W-1:0] DRAIN_MAX = CNT_W'(DRAIN_LATENCY); // converts 32 into 6 bit constant
 
     always_ff @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
@@ -89,7 +90,7 @@ module systolic_array #(
             if (valid_cnt < DRAIN_MAX)
                 valid_cnt <= valid_cnt + 1;
             else
-                acc_valid <= 1'b1;
+                acc_valid <= 1'b1; // this is a flag so that processing engines like gemm_post only access the final values, not intermediate
         end
     end
 

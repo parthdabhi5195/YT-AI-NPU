@@ -1,4 +1,6 @@
-"""Quantization utilities matching RTL fixed-point arithmetic exactly."""
+""" Quantization utilities matching RTL fixed-point arithmetic exactly.
+    Exact same as the npu_pkg.sv and fixed_pkg.sv but in Python
+"""
 import numpy as np
 
 def clamp_i8(x):

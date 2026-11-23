@@ -1,6 +1,7 @@
 // =============================================================================
 // Processing Element for Systolic Array
 // Passes data east (a) and south (b) with 1-cycle delay
+// called 256 times. There are 256 MACs in 16x16 systolic array
 // =============================================================================
 `default_nettype none
 

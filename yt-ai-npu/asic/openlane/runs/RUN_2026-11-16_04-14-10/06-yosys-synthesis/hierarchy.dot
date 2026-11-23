@@ -1,0 +1,36 @@
+digraph "yt_pe" {
+label="yt_pe";
+rankdir="LR";
+remincross=true;
+n4 [ shape=octagon, label="acc_out", color="black", fontcolor="black"];
+n5 [ shape=octagon, label="b_out", color="black", fontcolor="black"];
+n6 [ shape=octagon, label="a_out", color="black", fontcolor="black"];
+n7 [ shape=octagon, label="b_in", color="black", fontcolor="black"];
+n8 [ shape=octagon, label="a_in", color="black", fontcolor="black"];
+n9 [ shape=octagon, label="en", color="black", fontcolor="black"];
+n10 [ shape=octagon, label="clear_acc", color="black", fontcolor="black"];
+n11 [ shape=octagon, label="rst_n", color="black", fontcolor="black"];
+n12 [ shape=octagon, label="clk", color="black", fontcolor="black"];
+c15 [ shape=record, label="{{<p13> A}|$2\n$logic_not|{<p14> Y}}",  ];
+c16 [ shape=record, label="{{<p8> a_in|<p7> b_in|<p10> clear_acc|<p12> clk|<p9> en|<p11> rst_n}|u_mac\n$paramod$bb41eba6456ae86b5bd13e554ac0105659259307&#9586;yt_mac_w8a16|{<p4> acc_out}}",  ];
+p0 [shape=box, style=rounded, label="PROC $1\n/work/rtl/gemm/yt_pe.sv:38.5-49.8", ];
+c15:p14:e -> p0:w [color="black", fontcolor="black", label=""];
+n10:e -> c16:p10:w [color="black", fontcolor="black", label=""];
+n10:e -> p0:w [color="black", fontcolor="black", label=""];
+n11:e -> c15:p13:w [color="black", fontcolor="black", label=""];
+n11:e -> c16:p11:w [color="black", fontcolor="black", label=""];
+n11:e -> p0:w [color="black", fontcolor="black", label=""];
+n12:e -> c16:p12:w [color="black", fontcolor="black", label=""];
+n12:e -> p0:w [color="black", fontcolor="black", label=""];
+c16:p4:e -> n4:w [color="black", fontcolor="black", style="setlinewidth(3)", label=""];
+p0:e -> n5:w [color="black", fontcolor="black", style="setlinewidth(3)", label=""];
+n5:e -> p0:w [color="black", fontcolor="black", style="setlinewidth(3)", label=""];
+p0:e -> n6:w [color="black", fontcolor="black", style="setlinewidth(3)", label=""];
+n6:e -> p0:w [color="black", fontcolor="black", style="setlinewidth(3)", label=""];
+n7:e -> c16:p7:w [color="black", fontcolor="black", style="setlinewidth(3)", label=""];
+n7:e -> p0:w [color="black", fontcolor="black", style="setlinewidth(3)", label=""];
+n8:e -> c16:p8:w [color="black", fontcolor="black", style="setlinewidth(3)", label=""];
+n8:e -> p0:w [color="black", fontcolor="black", style="setlinewidth(3)", label=""];
+n9:e -> c16:p9:w [color="black", fontcolor="black", label=""];
+n9:e -> p0:w [color="black", fontcolor="black", label=""];
+}

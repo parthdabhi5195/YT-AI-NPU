@@ -1,0 +1,40 @@
+115. Printing statistics.
+
+=== yt_pe ===
+
+   Number of wires:               1477
+   Number of wire bits:           1574
+   Number of public wires:           9
+   Number of public wire bits:      84
+   Number of ports:                  9
+   Number of port bits:             84
+   Number of memories:               0
+   Number of memory bits:            0
+   Number of processes:              0
+   Number of cells:               1546
+     $_ANDNOT_                     513
+     $_AND_                        125
+     $_MUX_                         57
+     $_NAND_                        52
+     $_NOR_                         93
+     $_NOT_                         45
+     $_ORNOT_                       58
+     $_OR_                         120
+     $_XNOR_                       171
+     $_XOR_                        256
+     sky130_fd_sc_hd__dfrtp_2       56
+
+   Area for cell type $_NOT_ is unknown!
+   Area for cell type $_AND_ is unknown!
+   Area for cell type $_NAND_ is unknown!
+   Area for cell type $_OR_ is unknown!
+   Area for cell type $_NOR_ is unknown!
+   Area for cell type $_XOR_ is unknown!
+   Area for cell type $_XNOR_ is unknown!
+   Area for cell type $_ANDNOT_ is unknown!
+   Area for cell type $_ORNOT_ is unknown!
+   Area for cell type $_MUX_ is unknown!
+
+   Chip area for module '\yt_pe': 1471.411200
+     of which used for sequential elements: 1471.411200 (100.00%)
+

@@ -7,15 +7,17 @@ module mac_int8 #(
     parameter int DATA_W = 8,
     parameter int ACC_W  = 32
 )(
-    input  wire                        clk,
-    input  wire                        rst_n,
-    input  wire                        clear_acc,
-    input  wire                        en,
-    input  wire  signed [DATA_W-1:0]   a_in,
-    input  wire  signed [DATA_W-1:0]   b_in,
-    output logic signed [ACC_W-1:0]    acc_out
+    input  wire                        clk, // clock
+    input  wire                        rst_n, // reset
+    input  wire                        clear_acc, // clear out to zero 
+    input  wire                        en, // enable
+    input  wire  signed [DATA_W-1:0]   a_in, // signed 8-bit integer
+    input  wire  signed [DATA_W-1:0]   b_in, // other input
+    output logic signed [ACC_W-1:0]    acc_out // output (signed 32-bit. prevents overflow)
 );
 
+    // instead of multiplying and adding in single clock cycle, it splits the work into 2 steps
+    
     // Stage 1: multiply
     logic signed [2*DATA_W-1:0] product;
     logic                       en_d1;

@@ -1,0 +1,5 @@
+`verilator_config
+lint_off -rule DECLFILENAME
+lint_off -rule EOFNEWLINE
+lint_off -rule UNDRIVEN -file "/work/asic/openlane/runs/RUN_2026-11-16_04-14-10/tmp/94922d1c6ab54701b52ba97333985c58.bb.v"
+lint_off -rule UNUSEDSIGNAL -file "/work/asic/openlane/runs/RUN_2026-11-16_04-14-10/tmp/94922d1c6ab54701b52ba97333985c58.bb.v"

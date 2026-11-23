@@ -1,0 +1,71 @@
+Reading timing models for corner nom_tt_025C_1v80…
+Reading timing library for the 'nom_tt_025C_1v80' corner at '/root/.volare/volare/sky130/versions/0fe599b2afb6708d281543108caf8310912f54af/sky130A/libs.ref/sky130_fd_sc_hd/lib/sky130_fd_sc_hd__tt_025C_1v80.lib'…
+Reading timing models for corner nom_ff_n40C_1v95…
+Reading timing library for the 'nom_ff_n40C_1v95' corner at '/root/.volare/volare/sky130/versions/0fe599b2afb6708d281543108caf8310912f54af/sky130A/libs.ref/sky130_fd_sc_hd/lib/sky130_fd_sc_hd__ff_n40C_1v95.lib'…
+Reading timing models for corner nom_ss_100C_1v60…
+Reading timing library for the 'nom_ss_100C_1v60' corner at '/root/.volare/volare/sky130/versions/0fe599b2afb6708d281543108caf8310912f54af/sky130A/libs.ref/sky130_fd_sc_hd/lib/sky130_fd_sc_hd__ss_100C_1v60.lib'…
+Reading OpenROAD database at '/work/asic/openlane/runs/RUN_2026-11-16_04-14-10/27-openroad-globalplacement/yt_pe.odb'…
+Reading design constraints file at '/nix/store/0cgica8q52vjb9a7vbwaccncbajs33gx-python3-3.11.9-env/lib/python3.11/site-packages/openlane/scripts/base.sdc'…
+[INFO] Using clock clk…
+[INFO] Setting output delay to: 2.0
+[INFO] Setting input delay to: 2.0
+[INFO] Setting load to: 0.033442
+[INFO] Setting clock uncertainty to: 0.25
+[INFO] Setting clock transition to: 0.1499999999999999944488848768742172978818416595458984375
+[INFO] Setting timing derate to: 5%
+[INFO] Setting RC values…
+[INFO RSZ-0027] Inserted 27 input buffers.
+[INFO RSZ-0028] Inserted 56 output buffers.
+[INFO RSZ-0058] Using max wire length 6335um.
+Iteration | Resized | Buffers | Nets repaired | Remaining
+---------------------------------------------------------
+        0 |       0 |       0 |             0 |      1347
+      100 |     107 |       8 |             2 |      1247
+      200 |     197 |       8 |             2 |      1147
+      300 |     290 |       8 |             2 |      1047
+      400 |     381 |       8 |             2 |       947
+      500 |     473 |       8 |             2 |       847
+      600 |     563 |       8 |             4 |       747
+      700 |     661 |       8 |             4 |       647
+      800 |     751 |      14 |             7 |       547
+      900 |     846 |      14 |             7 |       447
+     1000 |     949 |      21 |            11 |       347
+     1100 |    1047 |      21 |            17 |       247
+     1200 |    1144 |      21 |            17 |       147
+     1300 |    1256 |      50 |            26 |        47
+    final |    1323 |     108 |            44 |         0
+---------------------------------------------------------
+[INFO RSZ-0034] Found 11 slew violations.
+[INFO RSZ-0035] Found 33 fanout violations.
+[INFO RSZ-0038] Inserted 108 buffers in 44 nets.
+[INFO RSZ-0039] Resized 1323 instances.
+Placement Analysis
+---------------------------------
+total displacement       3522.1 u
+average displacement        1.9 u
+max displacement           13.4 u
+original HPWL           23556.4 u
+legalized HPWL          27036.7 u
+delta HPWL                   15 %
+
+[INFO DPL-0020] Mirrored 589 instances
+[INFO DPL-0021] HPWL before           27036.7 u
+[INFO DPL-0022] HPWL after            26151.6 u
+[INFO DPL-0023] HPWL delta               -3.3 %
+[INFO] Setting RC values…
+Setting global connections for newly added cells…
+[INFO] Setting global connections...
+Updating metrics…
+Cell type report:                       Count       Area
+  Fill cell                               100     375.36
+  Tap cell                                286     357.84
+  Timing Repair Buffer                    191    1057.26
+  Inverter                                 26     102.60
+  Sequential cell                          56    1405.10
+  Multi-Input combinational cell         1154    8485.64
+  Total                                  1813   11783.80
+Writing OpenROAD database to '/work/asic/openlane/runs/RUN_2026-11-16_04-14-10/31-openroad-repairdesignpostgpl/yt_pe.odb'…
+Writing netlist to '/work/asic/openlane/runs/RUN_2026-11-16_04-14-10/31-openroad-repairdesignpostgpl/yt_pe.nl.v'…
+Writing powered netlist to '/work/asic/openlane/runs/RUN_2026-11-16_04-14-10/31-openroad-repairdesignpostgpl/yt_pe.pnl.v'…
+Writing layout to '/work/asic/openlane/runs/RUN_2026-11-16_04-14-10/31-openroad-repairdesignpostgpl/yt_pe.def'…
+Writing timing constraints to '/work/asic/openlane/runs/RUN_2026-11-16_04-14-10/31-openroad-repairdesignpostgpl/yt_pe.sdc'…
