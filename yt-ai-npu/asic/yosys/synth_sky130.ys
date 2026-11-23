@@ -12,10 +12,9 @@ read_verilog -sv ../../rtl/gemm/yt_mac_w8a16.sv
 read_verilog -sv ../../rtl/gemm/yt_pe.sv
 read_verilog -sv ../../rtl/gemm/yt_systolic_array.sv
 read_verilog -sv ../../rtl/gemm/yt_gemm_engine.sv
-read_verilog -sv ../../rtl/ops/yt_rsqrt_lut.sv
-read_verilog -sv ../../rtl/ops/yt_exp_lut.sv
-read_verilog -sv ../../rtl/ops/yt_recip_lut.sv
-read_verilog -sv ../../rtl/ops/yt_gelu_lut.sv
+read_verilog -sv ../../rtl/ops/yt_sfu_exp.sv
+read_verilog -sv ../../rtl/ops/yt_sfu_recip.sv
+read_verilog -sv ../../rtl/ops/yt_sfu_rsqrt.sv
 read_verilog -sv ../../rtl/ops/yt_layernorm_engine.sv
 read_verilog -sv ../../rtl/ops/yt_softmax_engine.sv
 read_verilog -sv ../../rtl/ops/yt_gelu_engine.sv

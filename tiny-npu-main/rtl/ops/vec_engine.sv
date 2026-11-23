@@ -239,3 +239,17 @@ module vec_engine (
     assign done      = (state == S_DONE);
 
 endmodule
+
+// basically like a for loop in hardware the walks through an array in SRAm one INT8 byte at a time,
+// and performs operations on its
+//  1. residual connections (x + attn_out) and (x + ffn_out)
+    // the matrix multiplier cant perform single element by element addition.
+
+//  2. Stitch Attention Heads Together
+    // NPU computes multi-head attention one head at a time into a small temporary buffer
+    // before the next step (Wo projections) all 4 heads need to placed side by side.
+
+//  3. Simple Element-by-element scaling/multiplying
+    // handles two smaller utility ops if a model needs them.
+        // elementwise multiply: A[i] * B[i]
+        // Scale and shift: (A[i] * scale) >> shift (rescaling numbers to fit in 8 bit integers)

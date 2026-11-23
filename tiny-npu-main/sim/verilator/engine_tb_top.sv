@@ -461,3 +461,7 @@ module engine_tb_top
 endmodule
 
 `default_nettype wire
+
+
+// unit-test harness for NPU's compute engines. It lets the C++ testbench test each math unit one by one (without microcode controller, scoreboard, or AXI bus)
+// main point in this file is a busy (Priority Mux). because each engine uses always_comb if / else if multiplexers. If an engine is busy, that engine owns the SRAM addreass read/write ports.

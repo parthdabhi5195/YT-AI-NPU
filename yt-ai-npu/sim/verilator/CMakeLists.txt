@@ -18,10 +18,9 @@ set(YT_NPU_RTL_SRCS
     ${RTL_DIR}/gemm/yt_pe.sv
     ${RTL_DIR}/gemm/yt_systolic_array.sv
     ${RTL_DIR}/gemm/yt_gemm_engine.sv
-    ${RTL_DIR}/ops/yt_rsqrt_lut.sv
-    ${RTL_DIR}/ops/yt_exp_lut.sv
-    ${RTL_DIR}/ops/yt_recip_lut.sv
-    ${RTL_DIR}/ops/yt_gelu_lut.sv
+    ${RTL_DIR}/ops/yt_sfu_exp.sv
+    ${RTL_DIR}/ops/yt_sfu_recip.sv
+    ${RTL_DIR}/ops/yt_sfu_rsqrt.sv
     ${RTL_DIR}/ops/yt_layernorm_engine.sv
     ${RTL_DIR}/ops/yt_softmax_engine.sv
     ${RTL_DIR}/ops/yt_gelu_engine.sv

@@ -288,3 +288,8 @@ module layernorm_engine (
     assign done      = (state == S_DONE);
 
 endmodule
+
+// computes LayerNorm over a single INT8 activation without using floating-point hardware
+
+
+// Uses 3 stage FSM: Pass 1: find mean and var, and inverse square root lookup, Pass 2: Normalize and write back

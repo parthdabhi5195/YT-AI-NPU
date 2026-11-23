@@ -67,3 +67,11 @@ module reduce_sum (
     assign sum_valid = last_seen;
 
 endmodule
+
+// this file is a streaming accumlator and the hardware equivalent of the following:
+    // acc = 0
+    // for x in stream:
+    //     acc = clamp_int32(acc + x) 
+    // return acc
+
+// it is used by pass 2 of softmax_engine.sv to add up all the exp(x - max) values in a row, before Pass 3 divides by that sum.

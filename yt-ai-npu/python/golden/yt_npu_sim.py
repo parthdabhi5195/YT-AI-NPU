@@ -11,7 +11,6 @@ import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from golden.fixed_ops import (  # noqa: E402
-    EXP_LUT,
     HardwareXorshift64Star,
     hw_embed_q78,
     hw_gelu_q78,
@@ -20,6 +19,7 @@ from golden.fixed_ops import (  # noqa: E402
     pack_kv_q43,
     requantize_q78,
     saturate_i16_arr,
+    sfu_exp_q15,
 )
 from tools.memory_map import (  # noqa: E402
     ACT_SRAM_WORDS,
@@ -299,8 +299,8 @@ class YtAiNpuSimulator:
             else:
                 diff = self.pool_max_val - logit
                 scaled = (diff * self.cfg_temp_inv_q88) >> 8
-                clamped = min(max(0, scaled), 4080)
-                probs[s] = int(EXP_LUT[clamped >> 4])
+                clamped = min(max(0, scaled), 4095)
+                probs[s] = int(sfu_exp_q15(np.array(clamped)))
 
         prob_sum = int(np.sum(probs))
         rand_u32 = self.prng.step_u32()

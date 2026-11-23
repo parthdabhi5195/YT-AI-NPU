@@ -66,3 +66,12 @@ module reduce_max (
     assign max_valid = last_seen;
 
 endmodule
+
+// this file helps find the maximum signed INT8 value in a stream of numbers arriving one per clock cycle
+// It is used by softmax_engine.sv during Pass 1 of softmax (computing max(x) before subtracting it for numerical stability)
+
+// equivilant of 
+    // running_max = -128
+    // for x in stream:
+    //   if x > running_max:
+    //      running_max = x

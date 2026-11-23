@@ -1,11 +1,11 @@
 // =============================================================================
-// Full 512-Context 3-Pass Causal Softmax Engine (yt_softmax_engine.sv)
+// 100% LUT-Free 512-Context 3-Pass Causal Softmax Engine (yt_softmax_engine.sv)
 // - Processes M rows x N sequence columns (up to N = 512!)
 // - Pass 1: Row max of Q7.8 scores (with optional causal mask col > K + row)
-// - Pass 2: diff = clamp(max - score, 0, 4080), exp_u15 = EXP_LUT[diff >> 4],
-//           writes 512x16b internal scratch SRAM and accumulates sum_exp
-// - Pass 3: CLZ Normalization + 256x16b RECIP_LUT -> Q0.15 probabilities [0..32767]
-//           (ZERO hardware divider!)
+// - Pass 2: Full-resolution Q7.8 diff = clamp(max - score, 0, 4095) fed to
+//           algebraic Base-2 Horner Polynomial `yt_sfu_exp` (ZERO LUTs!)
+// - Pass 3: 16-bit CLZ Normalization + Newton-Raphson `yt_sfu_recip` -> Q0.15
+//           probabilities [0..32767] (ZERO LUTs, ZERO hardware dividers!)
 // =============================================================================
 `default_nettype none
 
@@ -42,7 +42,8 @@ module yt_softmax_engine
         S_P1_RD,
         S_P1_MAX,
         S_P2_RD,
-        S_P2_LUT,
+        S_P2_EXP_REQ,
+        S_P2_EXP_WAIT,
         S_P2_SUM,
         S_NORM_SUM,
         S_RECIP_WAIT,
@@ -60,12 +61,8 @@ module yt_softmax_engine
 
     logic signed [15:0] r_max;
     logic        [31:0] r_sum;
-    logic        [7:0]  exp_addr;
-    wire         [15:0] exp_dout;
-    logic        [7:0]  recip_addr;
-    wire         [15:0] recip_dout;
     logic        [15:0] r_recip_val;
-    logic signed [6:0]  r_rshift; // signed shift: >=0 right shift, <0 left shift
+    logic signed [6:0]  r_rshift;
     logic               p2_masked_q;
 
     // Internal 512x16-bit Scratch SRAM for row exp values
@@ -86,37 +83,53 @@ module yt_softmax_engine
         .wr_data (scr_wr_data)
     );
 
-    yt_exp_lut u_exp_rom (
-        .clk      (clk),
-        .addr     (exp_addr),
-        .data_out (exp_dout)
+    // Pure Algebraic SFUs (Zero LUTs!)
+    wire         exp_req;
+    logic [12:0] clamped_diff;
+    wire         exp_valid;
+    wire  [15:0] exp_q15;
+
+    wire         recip_req;
+    logic [15:0] calc_m16;
+    wire         recip_valid;
+    wire  [15:0] recip_q14;
+
+    yt_sfu_exp u_sfu_exp (
+        .clk        (clk),
+        .rst_n      (rst_n),
+        .req_valid  (exp_req),
+        .d_q78      (clamped_diff),
+        .resp_valid (exp_valid),
+        .exp_q15    (exp_q15)
     );
 
-    yt_recip_lut u_recip_rom (
-        .clk      (clk),
-        .addr     (recip_addr),
-        .data_out (recip_dout)
+    yt_sfu_recip u_sfu_recip (
+        .clk        (clk),
+        .rst_n      (rst_n),
+        .req_valid  (recip_req),
+        .m_u16      (calc_m16),
+        .resp_valid (recip_valid),
+        .recip_q14  (recip_q14)
     );
 
-    // CLZ normalization of r_sum into m in [128..255]
-    logic [7:0]         calc_m;
-    logic signed [6:0]  calc_rshift;
+    // 16-bit CLZ normalization of r_sum into calc_m16 in [32768..65535] (m_real in [0.5, 1.0))
+    logic signed [6:0] calc_rshift;
     always_comb begin
         automatic logic [31:0] s = (r_sum == 32'd0) ? 32'd1 : r_sum;
-        calc_m      = 8'd128;
-        calc_rshift = 7'sd7;
-        if (s < 32'd128) begin
-            for (int sh = 7; sh >= 1; sh--) begin
-                if ((s << sh) >= 32'd128 && (s << sh) < 32'd256) begin
-                    calc_m      = 8'((s << sh) & 32'hFF);
-                    calc_rshift = 7'sd7 - 7'(signed'(sh));
+        calc_m16    = 16'd32768;
+        calc_rshift = 7'sd15;
+        if (s < 32'd32768) begin
+            for (int sh = 15; sh >= 1; sh--) begin
+                if ((s << sh) >= 32'd32768 && (s << sh) < 32'd65536) begin
+                    calc_m16    = 16'((s << sh) & 32'hFFFF);
+                    calc_rshift = 7'sd15 - 7'(signed'(sh));
                 end
             end
         end else begin
-            for (int sh = 24; sh >= 0; sh--) begin
-                if ((s >> sh) >= 32'd128 && (s >> sh) < 32'd256) begin
-                    calc_m      = 8'((s >> sh) & 32'hFF);
-                    calc_rshift = 7'sd7 + 7'(signed'(sh));
+            for (int sh = 16; sh >= 0; sh--) begin
+                if ((s >> sh) >= 32'd32768 && (s >> sh) < 32'd65536) begin
+                    calc_m16    = 16'((s >> sh) & 32'hFFFF);
+                    calc_rshift = 7'sd15 + 7'(signed'(sh));
                 end
             end
         end
@@ -125,41 +138,44 @@ module yt_softmax_engine
     always_comb begin
         state_nxt = state;
         case (state)
-            S_IDLE:       if (cmd_valid) state_nxt = S_P1_RD;
-            S_P1_RD:      state_nxt = S_P1_MAX;
-            S_P1_MAX:     state_nxt = (col_idx == r_len - 16'd1) ? S_P2_RD : S_P1_RD;
-            S_P2_RD:      state_nxt = S_P2_LUT;
-            S_P2_LUT:     state_nxt = S_P2_SUM;
-            S_P2_SUM:     state_nxt = (col_idx == r_len - 16'd1) ? S_NORM_SUM : S_P2_RD;
-            S_NORM_SUM:   state_nxt = S_RECIP_WAIT;
-            S_RECIP_WAIT: state_nxt = S_P3_RD;
-            S_P3_RD:      state_nxt = S_P3_WR;
-            S_P3_WR:      state_nxt = (col_idx == r_len - 16'd1) ? S_NEXT_ROW : S_P3_RD;
-            S_NEXT_ROW:   state_nxt = (row_idx == r_rows - 16'd1) ? S_DONE : S_P1_RD;
-            S_DONE:       state_nxt = S_IDLE;
-            default:      state_nxt = S_IDLE;
+            S_IDLE:        if (cmd_valid)   state_nxt = S_P1_RD;
+            S_P1_RD:       state_nxt = S_P1_MAX;
+            S_P1_MAX:      state_nxt = (col_idx == r_len - 16'd1) ? S_P2_RD : S_P1_RD;
+            S_P2_RD:       state_nxt = S_P2_EXP_REQ;
+            S_P2_EXP_REQ:  state_nxt = p2_masked_flag ? S_P2_SUM : S_P2_EXP_WAIT;
+            S_P2_EXP_WAIT: if (exp_valid)   state_nxt = S_P2_SUM;
+            S_P2_SUM:      state_nxt = (col_idx == r_len - 16'd1) ? S_NORM_SUM : S_P2_RD;
+            S_NORM_SUM:    state_nxt = S_RECIP_WAIT;
+            S_RECIP_WAIT:  if (recip_valid) state_nxt = S_P3_RD;
+            S_P3_RD:       state_nxt = S_P3_WR;
+            S_P3_WR:       state_nxt = (col_idx == r_len - 16'd1) ? S_NEXT_ROW : S_P3_RD;
+            S_NEXT_ROW:    state_nxt = (row_idx == r_rows - 16'd1) ? S_DONE : S_P1_RD;
+            S_DONE:        state_nxt = S_IDLE;
+            default:       state_nxt = S_IDLE;
         endcase
     end
 
+    wire [31:0] row_src_base  = 32'(r_src) + 32'(row_idx) * 32'(r_len);
+    wire [31:0] row_dst_base  = 32'(r_dst) + 32'(row_idx) * 32'(r_len);
+    wire        is_masked     = r_cmask && (col_idx > (r_cbase + row_idx));
+    wire        p2_masked_flag = is_masked;
+
     always_ff @(posedge clk or negedge rst_n) begin
-        if (!rst_n) state <= ST_IDLE_SAFE;
+        if (!rst_n) state <= S_IDLE;
         else        state <= state_nxt;
     end
-    localparam state_t ST_IDLE_SAFE = S_IDLE;
 
-    wire [31:0] row_src_base = 32'(r_src) + 32'(row_idx) * 32'(r_len);
-    wire [31:0] row_dst_base = 32'(r_dst) + 32'(row_idx) * 32'(r_len);
-    wire        is_masked    = r_cmask && (col_idx > (r_cbase + row_idx));
-
-    // Pass 2 diff calculation
+    // Pass 2 full-precision Q7.8 diff calculation (no >>4 truncation!)
     logic signed [31:0] raw_diff;
-    logic        [11:0] clamped_diff;
     always_comb begin
         raw_diff = 32'(r_max) - 32'(act_rd_data);
-        if (raw_diff < 32'sd0)         clamped_diff = 12'd0;
-        else if (raw_diff > 32'sd4080) clamped_diff = 12'd4080;
-        else                           clamped_diff = raw_diff[11:0];
+        if (raw_diff < 32'sd0)         clamped_diff = 13'd0;
+        else if (raw_diff > 32'sd4095) clamped_diff = 13'd4095;
+        else                           clamped_diff = raw_diff[12:0];
     end
+
+    assign exp_req   = (state == S_P2_EXP_REQ) && !is_masked;
+    assign recip_req = (state == S_NORM_SUM);
 
     // Pass 3 normalization math
     logic [47:0] p3_prod;
@@ -181,12 +197,9 @@ module yt_softmax_engine
         act_wr_addr = ACT_ADDR_W'(row_dst_base + 32'(col_idx));
         act_wr_data = signed'(p3_prob_u15);
 
-        exp_addr    = clamped_diff[11:4];
-        recip_addr  = calc_m;
-
         scr_wr_en   = (state == S_P2_SUM);
         scr_wr_addr = col_idx[8:0];
-        scr_wr_data = p2_masked_q ? 16'd0 : exp_dout;
+        scr_wr_data = p2_masked_q ? 16'd0 : exp_q15;
 
         scr_rd_en   = (state == S_P3_RD);
         scr_rd_addr = col_idx[8:0];
@@ -218,22 +231,24 @@ module yt_softmax_engine
                 end
 
                 S_P1_MAX: begin
-                    automatic logic signed [15:0] v = is_masked ? -16'sd32768 : act_rd_data;
-                    if (v > r_max) r_max <= v;
+                    automatic logic signed [15:0] cur_max =
+                        (!is_masked && (act_rd_data > r_max)) ? act_rd_data : r_max;
                     if (col_idx == r_len - 16'd1) begin
+                        r_max   <= (cur_max == -16'sd32768) ? 16'sd0 : cur_max;
                         col_idx <= 16'd0;
                         r_sum   <= 32'd0;
                     end else begin
+                        r_max   <= cur_max;
                         col_idx <= col_idx + 16'd1;
                     end
                 end
 
-                S_P2_LUT: begin
+                S_P2_EXP_REQ: begin
                     p2_masked_q <= is_masked;
                 end
 
                 S_P2_SUM: begin
-                    automatic logic [15:0] ev = p2_masked_q ? 16'd0 : exp_dout;
+                    automatic logic [15:0] ev = p2_masked_q ? 16'd0 : exp_q15;
                     r_sum <= r_sum + 32'(ev);
                     if (col_idx == r_len - 16'd1)
                         col_idx <= 16'd0;
@@ -246,7 +261,8 @@ module yt_softmax_engine
                 end
 
                 S_RECIP_WAIT: begin
-                    r_recip_val <= recip_dout;
+                    if (recip_valid)
+                        r_recip_val <= recip_q14;
                 end
 
                 S_P3_WR: begin

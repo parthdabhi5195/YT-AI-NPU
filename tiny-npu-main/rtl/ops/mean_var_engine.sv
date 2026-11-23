@@ -192,3 +192,11 @@ module mean_var_engine (
     assign result_valid = (state == S_DONE);
 
 endmodule
+
+// mean_var_engine.sv is a helper module used by LayerNorm to computer the mean and variance of a vector
+// of INT8 numbers in a single streaming pass.
+
+// the file watches the number of x stream past, one number per tick
+// then as each number arrives, it keeps track of two running totals. sum += x and sum_sq += x * x
+// once all the numbers have arrived, it computes mean= sum / N and var = (sum_sq / N) - mean**2
+// it hands the mean and var back to layernorm_engine.sv 

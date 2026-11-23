@@ -358,3 +358,18 @@ module softmax_engine (
     assign done      = (state == S_DONE);
 
 endmodule
+
+// this file computes the row-wise softmax over length  INT8 numbers in SRAM and writes back INT8 probabilities in [0, 127]
+// without any floating-point math or hardware divisions.
+
+// this module uses a 13 state FSM to walk through the row 3 times, using two small lookup tables and 16 bit Scrach SRAM to store intermediate exp values
+
+// FSM is a pattern that letes hardware step through sequence of actions on clock cycle at a time
+// In python, we can write a sequence of steps top to bottom, and the CPU runs line by line
+// Hardware doesnt have a program counter. Every wire and cicuit in softmax_engine.sv is physically active at the same time on every clock cycle
+// To make hardware do steps sequentially, you git it a state variable (register holding which step its currently on) and rules for moving to the next step on each clock edge.
+// In SystemVerilog, every block of code is a seperate physical circuit wired onto the chip, and electricity flows through all of them at the exacty same time on every clock cycle.
+// for example, u_reduce_max (line 115), u_exp_lut (line 126), u_reduce_sum (line 132), the subtractor (masked_input - r_max_val, line 297), and the multiplier (scratch_rd_data * r_recip_val, line 339) are all separate pieces of silicon sitting next to each other.
+// they all compute on every clock cycle at the same time. Even during pass 1, the pass 3 multiplier is actively multiplying.
+// we just ignore its output until we get to a specific state.
+

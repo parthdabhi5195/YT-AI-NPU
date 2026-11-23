@@ -1,5 +1,5 @@
 // =============================================================================
-// Streaming 50,257-Vocab Hardware Top-K + Temperature Multinomial Sampler
+// 100% LUT-Free Streaming 50,257-Vocab Hardware Top-K + Temperature Sampler
 // (yt_topk_sampler.sv)
 // - Supports YT-AI's exact inference sampling (`top_k = 200, temperature = 0.8`)
 //   as well as deterministic Greedy Argmax (`top_k = 1` or `temp_inv_q88 = 0`)!
@@ -8,9 +8,10 @@
 //     ignoring padded indices >= 50,257). Uses 1-cycle fast reject against
 //     `pool_min_val` so >99% of vocabulary logits finish in 1 clock cycle!
 // - OP_TOPK_SAMPLE:
-//     Scales `(pool_max_val - logit) * temp_inv_q88 >>> 8`, evaluates `yt_exp_lut`,
-//     draws a 64-bit Xorshift64* PRNG sample with Lemire's divider-free range
-//     reduction `(rand32 * prob_sum) >> 32`, and outputs `sampled_token_id`!
+//     Scales full-precision `(pool_max_val - logit) * temp_inv_q88 >>> 8`,
+//     evaluates algebraic Base-2 Horner `yt_sfu_exp` (ZERO LUTs!), draws a
+//     64-bit Xorshift64* PRNG sample with Lemire's divider-free range reduction
+//     `(rand32 * prob_sum) >> 32`, and outputs `sampled_token_id`!
 // =============================================================================
 `default_nettype none
 
@@ -58,7 +59,8 @@ module yt_topk_sampler
         S_RESCAN_RD,
         S_RESCAN_CMP,
         S_SMP_RD,
-        S_SMP_LUT,
+        S_SMP_EXP_REQ,
+        S_SMP_EXP_WAIT,
         S_SMP_ACC,
         S_SMP_DRAW,
         S_SMP_PICK_RD,
@@ -68,21 +70,7 @@ module yt_topk_sampler
 
     state_t state, state_nxt;
 
-    logic [8:0]  k_eff; // Clamped to [1..256]
-    logic [8:0]  slot_idx;
-    logic [15:0] r_src, r_len, r_vbase, elem_idx;
-
-    // Tracked min & max inside the K-entry pool
-    logic signed [15:0] pool_min_val, pool_max_val;
-    logic        [7:0]  pool_min_slot;
-    logic        [15:0] pool_max_id;
-
-    // Rescan scratch trackers
-    logic signed [15:0] scan_min_val, scan_max_val;
-    logic        [7:0]  scan_min_slot;
-    logic        [15:0] scan_max_id;
-
-    // 256x32-bit Pool SRAM: {token_id[15:0], logit_q78[15:0]}
+    // Candidate Pool SRAM: 256 x 32-bit ({tok_id[15:0], logit_q78[15:0]})
     logic        pool_rd_en, pool_wr_en;
     logic [7:0]  pool_rd_addr, pool_wr_addr;
     logic [31:0] pool_rd_data, pool_wr_data;
@@ -100,7 +88,7 @@ module yt_topk_sampler
         .wr_data (pool_wr_data)
     );
 
-    // 256x16-bit Probabilities SRAM for multinomial draw
+    // Candidate Probability SRAM: 256 x 16-bit (Q0.15 unnormalized exp probs)
     logic        prob_rd_en, prob_wr_en;
     logic [7:0]  prob_rd_addr, prob_wr_addr;
     logic [15:0] prob_rd_data, prob_wr_data;
@@ -118,13 +106,34 @@ module yt_topk_sampler
         .wr_data (prob_wr_data)
     );
 
-    logic [7:0]  exp_addr;
-    wire  [15:0] exp_dout;
-    yt_exp_lut u_exp_rom (
-        .clk      (clk),
-        .addr     (exp_addr),
-        .data_out (exp_dout)
+    // Pure Algebraic Base-2 Horner Exponential Unit (ZERO LUTs!)
+    wire         exp_req;
+    logic [12:0] temp_clamped;
+    wire         exp_valid;
+    wire  [15:0] exp_q15;
+
+    yt_sfu_exp u_sfu_exp (
+        .clk        (clk),
+        .rst_n      (rst_n),
+        .req_valid  (exp_req),
+        .d_q78      (temp_clamped),
+        .resp_valid (exp_valid),
+        .exp_q15    (exp_q15)
     );
+
+    // Pool tracking registers
+    logic        [8:0]  k_eff;
+    logic        [8:0]  slot_idx;
+    logic        [15:0] r_src, r_len, r_vbase;
+    logic        [15:0] elem_idx;
+
+    logic signed [15:0] pool_min_val;
+    logic        [7:0]  pool_min_slot;
+    logic signed [15:0] pool_max_val;
+    logic        [15:0] pool_max_id;
+
+    logic signed [15:0] rescan_min_val;
+    logic        [7:0]  rescan_min_slot;
 
     // 64-bit Xorshift64* PRNG
     logic [63:0] prng_state;
@@ -143,8 +152,27 @@ module yt_topk_sampler
     wire        greedy_mode  = (k_eff <= 9'd1) || (cfg_temp_inv_q88 == 16'd0);
 
     logic [31:0] prob_sum, target_threshold, cum_prob;
-    logic [15:0] latched_cand_id;
+    logic        r_slot_empty;
     logic        picked_flag;
+
+    // Temperature scaling math for S_SMP_EXP_REQ
+    logic signed [15:0] cand_logit;
+    logic        [15:0] cand_tok_id;
+    logic signed [31:0] temp_diff;
+    logic signed [47:0] temp_scaled;
+    wire                slot_is_empty = (cand_logit == -16'sd32768);
+
+    always_comb begin
+        cand_logit  = signed'(pool_rd_data[15:0]);
+        cand_tok_id = pool_rd_data[31:16];
+        temp_diff   = 32'(pool_max_val) - 32'(cand_logit);
+        temp_scaled = (48'(temp_diff) * 48'(signed'({1'b0, cfg_temp_inv_q88}))) >>> 8;
+        if (temp_scaled < 48'sd0)         temp_clamped = 13'd0;
+        else if (temp_scaled > 48'sd4095) temp_clamped = 13'd4095;
+        else                              temp_clamped = temp_scaled[12:0];
+    end
+
+    assign exp_req = (state == S_SMP_EXP_REQ) && !slot_is_empty;
 
     always_comb begin
         state_nxt = state;
@@ -160,8 +188,8 @@ module yt_topk_sampler
                 end
             end
 
-            S_INIT_CLEAR:  if (slot_idx == k_eff - 9'd1) state_nxt = S_FEED_RD;
-            S_FEED_RD:     state_nxt = S_FEED_CMP;
+            S_INIT_CLEAR:   if (slot_idx == k_eff - 9'd1) state_nxt = S_FEED_RD;
+            S_FEED_RD:      state_nxt = S_FEED_CMP;
             S_FEED_CMP: begin
                 if (beat_min)
                     state_nxt = S_RESCAN_RD;
@@ -171,7 +199,7 @@ module yt_topk_sampler
                     state_nxt = S_FEED_RD;
             end
 
-            S_RESCAN_RD:   state_nxt = S_RESCAN_CMP;
+            S_RESCAN_RD:    state_nxt = S_RESCAN_CMP;
             S_RESCAN_CMP: begin
                 if (slot_idx == k_eff - 9'd1)
                     state_nxt = (elem_idx == r_len - 16'd1) ? S_DONE : S_FEED_RD;
@@ -179,20 +207,21 @@ module yt_topk_sampler
                     state_nxt = S_RESCAN_RD;
             end
 
-            S_SMP_RD:      state_nxt = S_SMP_LUT;
-            S_SMP_LUT:     state_nxt = S_SMP_ACC;
-            S_SMP_ACC:     state_nxt = (slot_idx == k_eff - 9'd1) ? S_SMP_DRAW : S_SMP_RD;
-            S_SMP_DRAW:    state_nxt = S_SMP_PICK_RD;
-            S_SMP_PICK_RD: state_nxt = S_SMP_PICK_CMP;
-            S_SMP_PICK_CMP:begin
+            S_SMP_RD:       state_nxt = S_SMP_EXP_REQ;
+            S_SMP_EXP_REQ:  state_nxt = slot_is_empty ? S_SMP_ACC : S_SMP_EXP_WAIT;
+            S_SMP_EXP_WAIT: if (exp_valid) state_nxt = S_SMP_ACC;
+            S_SMP_ACC:      state_nxt = (slot_idx == k_eff - 9'd1) ? S_SMP_DRAW : S_SMP_RD;
+            S_SMP_DRAW:     state_nxt = S_SMP_PICK_RD;
+            S_SMP_PICK_RD:  state_nxt = S_SMP_PICK_CMP;
+            S_SMP_PICK_CMP: begin
                 if ((cum_prob + 32'(prob_rd_data) > target_threshold) || (slot_idx == k_eff - 9'd1))
                     state_nxt = S_DONE;
                 else
                     state_nxt = S_SMP_PICK_RD;
             end
 
-            S_DONE:        state_nxt = S_IDLE;
-            default:       state_nxt = S_IDLE;
+            S_DONE:         state_nxt = S_IDLE;
+            default:        state_nxt = S_IDLE;
         endcase
     end
 
@@ -201,24 +230,7 @@ module yt_topk_sampler
         else        state <= state_nxt;
     end
 
-    // Temperature scaling math for S_SMP_LUT
-    logic signed [15:0] cand_logit;
-    logic        [15:0] cand_tok_id;
-    logic signed [31:0] temp_diff;
-    logic signed [47:0] temp_scaled;
-    logic        [11:0] temp_clamped;
-
-    always_comb begin
-        cand_logit  = signed'(pool_rd_data[15:0]);
-        cand_tok_id = pool_rd_data[31:16];
-        temp_diff   = 32'(pool_max_val) - 32'(cand_logit);
-        temp_scaled = (48'(temp_diff) * 48'(signed'({1'b0, cfg_temp_inv_q88}))) >>> 8;
-        if (temp_scaled < 48'sd0)         temp_clamped = 12'd0;
-        else if (temp_scaled > 48'sd4080) temp_clamped = 12'd4080;
-        else                              temp_clamped = temp_scaled[11:0];
-    end
-
-    // SRAM & ROM controls
+    // SRAM controls
     always_comb begin
         act_rd_en    = (state == S_FEED_RD);
         act_rd_addr  = ACT_ADDR_W'(32'(r_src) + 32'(elem_idx));
@@ -240,11 +252,9 @@ module yt_topk_sampler
         pool_rd_en   = (state == S_RESCAN_RD) || (state == S_SMP_RD) || (state == S_SMP_PICK_RD);
         pool_rd_addr = slot_idx[7:0];
 
-        exp_addr     = temp_clamped[11:4];
-
         prob_wr_en   = (state == S_SMP_ACC);
         prob_wr_addr = slot_idx[7:0];
-        prob_wr_data = (cand_logit == -16'sd32768) ? 16'd0 : exp_dout;
+        prob_wr_data = r_slot_empty ? 16'd0 : exp_q15;
 
         prob_rd_en   = (state == S_SMP_PICK_RD);
         prob_rd_addr = slot_idx[7:0];
@@ -258,19 +268,20 @@ module yt_topk_sampler
             prng_state       <= 64'h853C_49E6_748F_EA9B;
             k_eff            <= 9'd200;
             slot_idx         <= '0;
-            r_src <= '0; r_len <= '0; r_vbase <= '0; elem_idx <= '0;
+            r_src            <= '0;
+            r_len            <= '0;
+            r_vbase          <= '0;
+            elem_idx         <= '0;
             pool_min_val     <= -16'sd32768;
-            pool_max_val     <= -16'sd32768;
             pool_min_slot    <= 8'd0;
+            pool_max_val     <= -16'sd32768;
             pool_max_id      <= 16'd0;
-            scan_min_val     <= 16'sd32767;
-            scan_max_val     <= -16'sd32768;
-            scan_min_slot    <= 8'd0;
-            scan_max_id      <= 16'd0;
+            rescan_min_val   <= 16'sd32767;
+            rescan_min_slot  <= 8'd0;
             prob_sum         <= '0;
             target_threshold <= '0;
             cum_prob         <= '0;
-            latched_cand_id  <= '0;
+            r_slot_empty     <= 1'b0;
             picked_flag      <= 1'b0;
             sample_valid     <= 1'b0;
             sampled_token_id <= 16'd0;
@@ -284,28 +295,33 @@ module yt_topk_sampler
             case (state)
                 S_IDLE: begin
                     if (cmd_valid) begin
-                        automatic logic [15:0] kc = (cfg_top_k == 16'd0) ? 16'd1 :
-                                                    (cfg_top_k > 16'd256) ? 16'd256 : cfg_top_k;
-                        k_eff    <= kc[8:0];
+                        automatic logic [8:0] ke = (cfg_top_k == 16'd0) ? 9'd1 :
+                                                   (cfg_top_k > 16'd256) ? 9'd256 : cfg_top_k[8:0];
+                        k_eff    <= ke;
                         r_src    <= cmd_src_base;
-                        r_len    <= cmd_length;
+                        r_len    <= (cmd_length == 16'd0) ? 16'd1 : cmd_length;
                         r_vbase  <= cmd_vocab_base;
                         elem_idx <= 16'd0;
                         slot_idx <= 9'd0;
                         prob_sum <= 32'd0;
-                        picked_flag <= 1'b0;
-                        if (cmd_is_sample && ((kc <= 16'd1) || (cfg_temp_inv_q88 == 16'd0))) begin
-                            sampled_token_id <= pool_max_id;
-                            sample_valid     <= 1'b1;
+
+                        if (cmd_is_sample) begin
+                            picked_flag <= 1'b1;
+                            if ((ke <= 9'd1) || (cfg_temp_inv_q88 == 16'd0))
+                                sampled_token_id <= pool_max_id;
+                        end else begin
+                            picked_flag <= 1'b0;
+                            if (cmd_reset_pool) begin
+                                pool_min_val  <= -16'sd32768;
+                                pool_min_slot <= 8'd0;
+                                pool_max_val  <= -16'sd32768;
+                                pool_max_id   <= 16'd0;
+                            end
                         end
                     end
                 end
 
                 S_INIT_CLEAR: begin
-                    pool_min_val  <= -16'sd32768;
-                    pool_max_val  <= -16'sd32768;
-                    pool_min_slot <= 8'd0;
-                    pool_max_id   <= 16'd0;
                     if (slot_idx == k_eff - 9'd1)
                         slot_idx <= 9'd0;
                     else
@@ -314,49 +330,43 @@ module yt_topk_sampler
 
                 S_FEED_CMP: begin
                     if (beat_min) begin
-                        slot_idx      <= 9'd0;
-                        scan_min_val  <= 16'sd32767;
-                        scan_max_val  <= -16'sd32768;
-                        scan_min_slot <= 8'd0;
-                        scan_max_id   <= cur_vocab_id[15:0];
+                        if (act_rd_data > pool_max_val) begin
+                            pool_max_val <= act_rd_data;
+                            pool_max_id  <= cur_vocab_id[15:0];
+                        end
+                        slot_idx        <= 9'd0;
+                        rescan_min_val  <= 16'sd32767;
+                        rescan_min_slot <= 8'd0;
                     end else if (elem_idx < r_len - 16'd1) begin
                         elem_idx <= elem_idx + 16'd1;
                     end
                 end
 
                 S_RESCAN_CMP: begin
-                    automatic logic signed [15:0] sv = signed'(pool_rd_data[15:0]);
-                    automatic logic        [15:0] sid = pool_rd_data[31:16];
-                    automatic logic signed [15:0] next_min_v = (sv < scan_min_val) ? sv : scan_min_val;
-                    automatic logic        [7:0]  next_min_s = (sv < scan_min_val) ? slot_idx[7:0] : scan_min_slot;
-                    automatic logic signed [15:0] next_max_v = (sv > scan_max_val) ? sv : scan_max_val;
-                    automatic logic        [15:0] next_max_i = (sv > scan_max_val) ? sid : scan_max_id;
-
-                    scan_min_val  <= next_min_v;
-                    scan_min_slot <= next_min_s;
-                    scan_max_val  <= next_max_v;
-                    scan_max_id   <= next_max_i;
+                    automatic logic signed [15:0] sl_val = signed'(pool_rd_data[15:0]);
+                    automatic logic signed [15:0] nxt_min_val  = (sl_val < rescan_min_val) ? sl_val : rescan_min_val;
+                    automatic logic        [7:0]  nxt_min_slot = (sl_val < rescan_min_val) ? slot_idx[7:0] : rescan_min_slot;
 
                     if (slot_idx == k_eff - 9'd1) begin
-                        pool_min_val  <= next_min_v;
-                        pool_min_slot <= next_min_s;
-                        pool_max_val  <= next_max_v;
-                        pool_max_id   <= next_max_i;
+                        pool_min_val  <= nxt_min_val;
+                        pool_min_slot <= nxt_min_slot;
                         slot_idx      <= 9'd0;
                         if (elem_idx < r_len - 16'd1)
                             elem_idx <= elem_idx + 16'd1;
                     end else begin
-                        slot_idx <= slot_idx + 9'd1;
+                        rescan_min_val  <= nxt_min_val;
+                        rescan_min_slot <= nxt_min_slot;
+                        slot_idx        <= slot_idx + 9'd1;
                     end
                 end
 
-                S_SMP_LUT: begin
-                    latched_cand_id <= cand_tok_id;
+                S_SMP_EXP_REQ: begin
+                    r_slot_empty <= slot_is_empty;
                 end
 
                 S_SMP_ACC: begin
-                    automatic logic [15:0] pv = (cand_logit == -16'sd32768) ? 16'd0 : exp_dout;
-                    prob_sum <= prob_sum + 32'(pv);
+                    automatic logic [15:0] pval = r_slot_empty ? 16'd0 : exp_q15;
+                    prob_sum <= prob_sum + 32'(pval);
                     if (slot_idx == k_eff - 9'd1)
                         slot_idx <= 9'd0;
                     else
@@ -364,12 +374,11 @@ module yt_topk_sampler
                 end
 
                 S_SMP_DRAW: begin
-                    // Advance Xorshift64* state & draw uniform threshold in [0 .. prob_sum-1]
                     automatic logic [63:0] x = prng_state;
                     x = x ^ (x >> 12);
                     x = x ^ (x << 25);
                     x = x ^ (x >> 27);
-                    prng_state <= x;
+                    prng_state       <= x;
                     target_threshold <= 32'((64'(prng_u32) * 64'(prob_sum)) >> 32);
                     cum_prob         <= 32'd0;
                     slot_idx         <= 9'd0;
@@ -377,13 +386,17 @@ module yt_topk_sampler
 
                 S_SMP_PICK_CMP: begin
                     automatic logic [31:0] new_cum = cum_prob + 32'(prob_rd_data);
-                    cum_prob <= new_cum;
-                    if ((new_cum > target_threshold && prob_rd_data > 16'd0) || (slot_idx == k_eff - 9'd1)) begin
-                        sampled_token_id <= (prob_sum == 32'd0) ? pool_max_id : pool_rd_data[31:16];
-                        sample_valid     <= 1'b1;
+                    if ((new_cum > target_threshold) || (slot_idx == k_eff - 9'd1)) begin
+                        sampled_token_id <= pool_rd_data[31:16];
                     end else begin
+                        cum_prob <= new_cum;
                         slot_idx <= slot_idx + 9'd1;
                     end
+                end
+
+                S_DONE: begin
+                    if (picked_flag)
+                        sample_valid <= 1'b1;
                 end
 
                 default: ;

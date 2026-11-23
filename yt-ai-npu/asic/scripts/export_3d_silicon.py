@@ -52,10 +52,10 @@ FLOORPLAN_BLOCKS: list[SiliconBlock] = [
     SiliconBlock("SYSTOLIC_16x16", "256 W8A16 MACs (51.2 GOPS)", 980, 1340, 1240, 1240, 71, 20, "#b45309", "#fbbf24", 5.5),
     SiliconBlock("GEMM_TILE_CTRL", "128b Loader + ACC_SRAM (1KB)", 980, 2620, 1240, 280, 70, 20, "#92400e", "#fcd34d", 3.6),
 
-    # Center-Bottom: Non-Linear & Autonomous Sampling Engines + 4x256 ROM LUTs
-    SiliconBlock("LAYERNORM_ENG",  "Divider-Free Q7.8 LN + RSQRT", 980, 780, 600, 480, 70, 20, "#6d28d9", "#c084fc", 3.5),
-    SiliconBlock("SOFTMAX_512",    "512-Ctx Causal SM + RECIP",   1620, 780, 600, 480, 70, 20, "#7e22ce", "#d8b4fe", 3.5),
-    SiliconBlock("GELU_VEC_EMB",   "Q7.8 GELU + Vec + Embed",      980, 260, 600, 460, 70, 20, "#4338ca", "#818cf8", 3.3),
+    # Center-Bottom: 100% LUT-Free Algebraic SFU & Autonomous Sampling Engines
+    SiliconBlock("LAYERNORM_SFU",  "Divider-Free LN + NR RSQRT",  980, 780, 600, 480, 70, 20, "#6d28d9", "#c084fc", 3.5),
+    SiliconBlock("SOFTMAX_SFU",    "512-Ctx Horner EXP + NR RCP",1620, 780, 600, 480, 70, 20, "#7e22ce", "#d8b4fe", 3.5),
+    SiliconBlock("GELU_SFU_VEC",   "Analytic GELU + Vec + Embed", 980, 260, 600, 460, 70, 20, "#4338ca", "#818cf8", 3.3),
     SiliconBlock("TOPK_SAMPLER",   "50,257-Vocab Top-200 + PRNG", 1620, 260, 600, 460, 70, 20, "#be123c", "#fb7185", 4.0),
 
     # Right Column: 32 KB ACT_SRAM + 8 KB PARAM_SRAM + 16 KB UCODE_SRAM + Sequencer

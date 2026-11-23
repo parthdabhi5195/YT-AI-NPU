@@ -741,3 +741,7 @@ int main(int argc, char** argv) {
 
     return (fail_count == 0) ? 0 : 1;
 }
+
+// C++ unit-test runner for individual NPU compute engines (built as the engine_sim target)
+// Instead of running microcode or AXI transactions, it wraps the Verilator-compiled hardware module, pokes the test data
+// directly into the on-chip SRAMs, triggers one engine at a time, and checks the results against C++ reference math.

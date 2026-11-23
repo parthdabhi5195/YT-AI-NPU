@@ -171,3 +171,7 @@ module gelu_engine (
     assign done      = (state == S_DONE);
 
 endmodule
+
+// uses LUT to preprocess the 256 values with GELU function
+// 1. loops through each 256 entry and looks up its pre-calculated GELU answer and writes back to memory.
+// 2. signals that its done, so the NPU can move the on to the next step, which is the second feed-forward matrix multiply.
