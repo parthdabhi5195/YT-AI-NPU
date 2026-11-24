@@ -507,3 +507,9 @@ module ucode_decode
     end
 
 endmodule
+
+// traffic controller of the NPU. It sits right after ucode_fetch, reads one 128 bit instruction at a time,
+// decides which hardware engine should run it, and makes sure it doesn't collide with work already in flight.
+// slices the 128 bit field into 9 fields, mapping the opcode to a target engine ID.
+// On each clock edge, the decoder moves through three states.
+// All engines see the same registered fields, but only the matching engine gets its cmd_valid wire pulsed high

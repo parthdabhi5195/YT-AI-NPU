@@ -181,3 +181,7 @@ module ucode_fetch
     assign busy = (state_q != S_IDLE);
 
 endmodule
+
+// NPU's program counter and instruction reader. Think of it like a for loop in software that reads one 128 bit
+// instruction at a time from on-chip microcode memory (UCODE SRAM) and hands it to the decoder, waiting whenever decoder is busy
+// 6 state FSM.

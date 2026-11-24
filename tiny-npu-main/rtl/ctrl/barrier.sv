@@ -119,3 +119,8 @@ module barrier
     assign done  = done_q;
 
 endmodule
+
+// tiny 3-state traffic light FSM that pauses the NPU's instruction stream whenever a barrier instruction
+// appears, until every running hardware engine finishes
+// Basically because different NPU engines can run in parallel, you can't start Softmax on a matrix while GEMM is 
+// still writing that matrix to SRAM. OP_BARRIER tells the controller to "stop issuing new instructions until everyone is done."

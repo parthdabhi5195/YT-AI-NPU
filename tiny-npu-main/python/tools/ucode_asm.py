@@ -274,3 +274,6 @@ if __name__ == '__main__':
         assemble_file(args.input, args.output, args.hex)
     else:
         parser.print_help()
+
+# tiny assembler for the NPU, just like x86/ARM assembler turns human-readable assembly text into machine code, this script
+# turns text instructions like GEMM and BARRIER into the 128 bit binary words that the NPU's microcode SRAM and ucode_decode.sv understand.

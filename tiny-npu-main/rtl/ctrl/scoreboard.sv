@@ -107,3 +107,8 @@ module scoreboard
     assign all_idle    = (busy_q == '0);
 
 endmodule
+
+// this file is the status board with one "Busy" light per hardware engine, preventing
+// instructions from colliding on the same engine
+// Its only job is to answer two questions for the microcode decoder.
+// Is Engine X free right now? and Are all engines finished?

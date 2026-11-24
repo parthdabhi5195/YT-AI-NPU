@@ -301,3 +301,8 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+# is the Python "answer key" (golden reference) for end-to-end GPT-2 text generation. Instead of running normal
+# PyTorch floating-point math, it runs GPT-2 using the exact same int8 weights and fixed-point hardware approximations
+# as the NPU RTL, then saves the expected tokens and logits so the verilator C++ testbench can verify the hardware against
+# them.

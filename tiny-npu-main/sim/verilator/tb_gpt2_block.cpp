@@ -1225,4 +1225,7 @@ int main(int argc, char** argv) {
     delete dut;
 
     return pass ? 0 : 1;
+    // C++ Verilator testbench that loads, runs, and verifies one full GPT-2 transformer block
+    // on the real hardware NPU. Basically a host CPU + refernce checker wrapped around the simulated
+    // chip.
 }

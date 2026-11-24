@@ -315,3 +315,7 @@ module axi_dma_wr
     assign error     = error_r;
 
 endmodule : axi_dma_wr
+
+// is the NPU's AXI4 DMA Write Master. Think of it as a shipping clerk that takes a single
+// big write command "write cmd_len bytes to DDR starting at cmd_addr" and breaks it into legal AXI4
+// bursts over the 128 bit bus.

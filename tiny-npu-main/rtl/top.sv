@@ -655,3 +655,6 @@ module top
 endmodule
 
 `default_nettype wire
+
+// is the outer shell of the chip. It handles talking to the host CPU, movin data over AXI, and
+// fetching/dispatching instructions, but it does not actually do any AI math yet.

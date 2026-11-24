@@ -343,3 +343,9 @@ module axi_lite_regs
     assign soft_reset_o  = reg_ctrl[CTRL_SOFT_RESET];
 
 endmodule : axi_lite_regs
+
+// NPU's settings and start button control panel that a host CPU talks to- just like a REST API.
+// Before the NPU can run, the host CPU needs to tell it things like "where are the weights in DDR",
+// "how long is the microcode", "start running", "are you done yet". This module exposes 14 32-bit
+// registers over AXI4-Lite (a simple, standard CPU-to-peripheral bus protocol), so the CPU can
+// read and write those settings by address. 

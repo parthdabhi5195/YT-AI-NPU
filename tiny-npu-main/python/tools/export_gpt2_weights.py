@@ -80,3 +80,8 @@ if __name__ == "__main__":
     outdir = os.environ.get("DEMO_OUTDIR", ".")
     outfile = args.outfile or os.path.join(outdir, "gpt2_tiny_fp32.npz")
     export(args.model, outfile)
+
+# small setup script that downloads real GPT-2 (124M) from Hugging Face and shrinks it down so it fits inside tiny-npu's
+# tiny-npu's 64kb on-chip SRAM.
+# it doesn't quantize the weights yet, it just slices the FP32 tensors and saves them into a single NumPy archive for
+# quantize_pack.py to quantize next.

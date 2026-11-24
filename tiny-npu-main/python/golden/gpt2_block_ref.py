@@ -136,3 +136,7 @@ if __name__ == '__main__':
     print(f"Input shape: {result['input'].shape}")
     print(f"Output shape: {result['output'].shape}")
     print(f"Output sample: {result['output'][0, :8]}")
+
+# is a pure int8 Python golden reference for one GPT-2 transformer block. Instead of using pyTorch or floating point math
+# it runs the exact fixed-point operations that the NPU hardware uses, so tests suites can generate tests vectors and verify the
+# hardwares math.

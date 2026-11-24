@@ -2190,3 +2190,5 @@ int main(int argc, char** argv) {
 
     return pass ? 0 : 1;
 }
+
+// C++ "host CPU" driver that runs full, end-to-end GPT-2 text generation on the simulated NPU hardware.

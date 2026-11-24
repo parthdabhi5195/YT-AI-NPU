@@ -278,3 +278,8 @@ module axi_dma_rd
     assign error     = error_r;
 
 endmodule : axi_dma_rd
+
+// DMA (Direct Memory Access) read engine. Think of it as a "chunked downloader" that sits between the NPU and external
+// DDR memory. When the NPU says "read cmd_len bytes starting at cmd_addr", this module
+// breaks that large request into legal AXI4 bursts (16 bytes per beat on a 128 bit bus), asks
+// memory for each chunk, and streams the incoming data downstream

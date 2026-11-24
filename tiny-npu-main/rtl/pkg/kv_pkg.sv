@@ -44,6 +44,13 @@ package kv_pkg;
     // =========================================================================
     parameter int KV_FLAG_IS_V = 0;   // flags[0]: 0 = K cache, 1 = V cache
 
+
+
+    // documentation package that defines how the NPU's two KV-cache microcode instructions 
+    // pack their arguments into the 128-bit instruction format.
+    // KV-cache microcode instructions are the two 128-bit hardware commands (opcode 8 and 9)
+    // that let the NPU's microcode program save and reload Key and Value vectors during token generation
+
 endpackage
 
 `endif

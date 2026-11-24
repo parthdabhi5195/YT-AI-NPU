@@ -108,3 +108,15 @@ package axi_types_pkg;
     endfunction
 
 endpackage : axi_types_pkg
+
+// shared constants and types file. Like a C header or Java constants/structs file.
+// It has no hardware logic of its own. Instead, the remaining axi files import it,
+// so they all agree on the exact wire widths and protocol codes for talking over AXI
+// AXI is Advanced eXtensible Interface. It is the standard on-chip "networking protocol"
+// that lets different hardware blocks- CPUs, memory controllers, and this NPU- to talk to each other
+// using one common set of wires and rules.
+// Master vs slave: master initiates read/write requests, and slave responds to them.
+// Built-in backpressure: every channel uses two-wire handshake. sender raises valid, and the 
+// reciever raises ready. Nothing moves unless both are 1 on the same clock edge.
+// 5 separate channels: address, data, write-acknoledgement each have their own wires, so reads and Writes
+// can happen at the same time without blocking one another.

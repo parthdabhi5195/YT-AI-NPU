@@ -114,3 +114,7 @@ def quantize_beta(beta_fp32):
     """Quantize LN beta to int8 (direct rounding, since beta adds directly)."""
     return np.clip(np.round(np.asarray(beta_fp32, dtype=np.float32)),
                    -128, 127).astype(np.int8)
+
+# Shared blueprint address book for the GPT-2 demo. Because the hardware has no dynamic memory allocator (malloc)
+# every weight matrix, activation buffer, and quantizations constant needs a hardcoded byte addres so the Python weight packer,
+# Python golden model, and C++ testbench all agree on where everything lives.
