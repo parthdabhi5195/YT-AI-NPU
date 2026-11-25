@@ -2,6 +2,10 @@
 
 A complete, zero-stub, tapeout-ready SystemVerilog **Neural Processing Unit (NPU)**, **128-bit microcode compiler**, **W8A16 quantization toolchain**, **bit-exact Python & C++/Verilator verification suite**, and **SkyWater SKY130 ASIC flow** custom-built to run autonomous story-generation inference on the **51,213,824-parameter [YT-AI Small Language Model](https://github.com/parthdabhi5195/YT-AI)**.
 
+## Final Tapeout
+
+![Tapeout](yt-ai-npu/yt-ai-npu_tapeout.png)
+
 | Specification | Design Value |
 | :--- | :--- |
 | **Target Model** | [YT-AI SLM](https://github.com/parthdabhi5195/YT-AI) — 8-layer GPT decoder (`8 heads`, `512 hidden`, `2048 FFN`, `512 context`, `50,257 BPE vocab`, `51,213,824` tied parameters) |
@@ -17,7 +21,7 @@ A complete, zero-stub, tapeout-ready SystemVerilog **Neural Processing Unit (NPU
 
 ## Table of Contents
 
-1. [Why We Built This](#1-why-we-built-this)
+1. [Why I Built This](#1-why-we-built-this)
 2. [Overall System Architecture](#2-overall-system-architecture)
 3. [High-Level Software Stack](#3-high-level-software-stack)
 4. [Verification Benchmarks & Physical Silicon Flow](#4-verification-benchmarks--physical-silicon-flow)
@@ -26,7 +30,7 @@ A complete, zero-stub, tapeout-ready SystemVerilog **Neural Processing Unit (NPU
 
 ---
 
-## 1. Why We Built This
+## 1. Why I Built This
 
 This project pairs directly with the **[YT-AI 51.2M Small Language Model](https://github.com/parthdabhi5195/YT-AI)**—a custom decoder-only Transformer pre-trained from scratch in PyTorch on `838.6M` tokens (`2.44M` synthetic stories) to generate short-form narrated video scripts.
 
@@ -130,10 +134,6 @@ The project includes a complete Python and C++17 software toolchain under `yt-ai
 ---
 
 ## 4. Verification Benchmarks & Physical Silicon Flow
-
-### Annotated SkyWater SKY130 Die Floorplan (`3.20 mm × 3.20 mm = 10.24 mm²`)
-
-![YT-AI Custom NPU Die Floorplan](yt-ai-npu/asic/output/yt_ai_npu_die.svg)
 
 ### End-to-End Accuracy & SFU Precision (`make lint` & `make verify`)
 
