@@ -8,13 +8,14 @@
 
 package yt_isa_pkg;
 
-    parameter int INSTR_W = 128;
+    parameter int INSTR_W = 128; // instruction size in bits
 
     // =========================================================================
     // Opcodes (8-bit)
+    // Basically what engine to run
     // =========================================================================
     typedef enum logic [7:0] {
-        OP_NOP          = 8'h00,
+        OP_NOP          = 8'h00, // do nothing
         OP_DMA_LOAD     = 8'h01, // AXI4 burst DDR -> WGT_SRAM / PARAM_SRAM / ACT_SRAM
         OP_DMA_STORE    = 8'h02, // AXI4 burst ACT_SRAM -> DDR
         OP_GEMM         = 8'h03, // W8A16 16x16 Systolic GEMM (M>1) / Fast 128b GEMV (M=1)
@@ -34,7 +35,9 @@ package yt_isa_pkg;
     } opcode_t;
 
     // =========================================================================
-    // GEMM Flag Bits (instr.flags[7:0])
+    // OP_GEMM Flag Bits (instr.flags[7:0])
+    // 8 on/off mode switches specific to that opcode
+    // You can have multiple flags per opcoded
     // =========================================================================
     parameter int FLAG_TRANSPOSE_B = 0; // 1: B stored as [N, K] (row-per-output, fast 128b GEMV!)
     parameter int FLAG_BIAS_EN     = 1; // 1: Add INT32 bias from PARAM_SRAM[K_bias_base + n]
@@ -46,15 +49,17 @@ package yt_isa_pkg;
     parameter int FLAG_ATTN_CTX    = 7; // 1: Attention context scaling ((acc + 512) >>> 10)
 
     // =========================================================================
-    // DMA Flag Bits (instr.flags[7:0])
+    // OP_DMA (Direct Memory Access) Flag Bits (instr.flags[7:0])
     // =========================================================================
     // flags[1:0]: Target on-chip memory
+    // picks destination SRAm
     parameter logic [1:0] DMA_TGT_WGT0  = 2'd0; // WGT_SRAM Bank 0 (16 KB)
     parameter logic [1:0] DMA_TGT_WGT1  = 2'd1; // WGT_SRAM Bank 1 (16 KB)
     parameter logic [1:0] DMA_TGT_PARAM = 2'd2; // PARAM_SRAM (8 KB, 32-bit words)
     parameter logic [1:0] DMA_TGT_ACT   = 2'd3; // ACT_SRAM (32 KB, 16-bit words)
 
     // flags[4:2]: External DDR region selector
+    // Picks DDR region
     parameter logic [2:0] DMA_REG_WTE    = 3'd0; // DDR_BASE_WGT + DDR_OFFSET_WTE
     parameter logic [2:0] DMA_REG_WPE    = 3'd1; // DDR_BASE_WGT + DDR_OFFSET_WPE
     parameter logic [2:0] DMA_REG_BLOCK  = 3'd2; // DDR_BASE_WGT + DDR_OFFSET_BLOCKS + layer*STRIDE
@@ -63,10 +68,13 @@ package yt_isa_pkg;
     parameter logic [2:0] DMA_REG_OUT    = 3'd5; // DDR_BASE_OUT
 
     // flags[6:5]: Dynamic loop stride mode (adds loop_idx * stride to DDR offset)
+    // auto add loop stride offset
+    // When this OP_DMA_LOAD sits inside a hardware for loop (OP_LOOP_BEGIN /OP_LOOP_END),
+    // how many bytes should the DDR address jump formward on each iteration.
     parameter logic [1:0] DMA_LOOP_NONE       = 2'd0;
-    parameter logic [1:0] DMA_LOOP_L0         = 2'd1; // Add loop_counter[0] * {imm, 10'b0}
+    parameter logic [1:0] DMA_LOOP_L0         = 2'd1; // Add loop_counter[0] * {imm, 10'b0} (basically imm * 1024) imm is bits[127:112] used for 8 attention heads
     parameter logic [1:0] DMA_LOOP_L1         = 2'd2; // Add loop_counter[1] * {imm, 10'b0}
-    parameter logic [1:0] DMA_LOOP_L0_256K_L1 = 2'd3; // Add (loop_counter[0]<<18) + loop_counter[1]*{imm,10'b0}
+    parameter logic [1:0] DMA_LOOP_L0_256K_L1 = 2'd3; // Add loop_counter[0] * 262144 (512x512 INT8 weight matrix) + loop_counter[1]* (imm * 1024). 2d array to loop over [slice][title] like MLP weights
     parameter int         FLAG_DMA_DYN_INDEX  = 7;    // Add cur_tok_id*512 (WTE) or cur_pos*512 (WPE)
 
     // =========================================================================

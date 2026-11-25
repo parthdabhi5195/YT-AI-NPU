@@ -2,10 +2,19 @@
 // YT-AI NPU Package (yt_npu_pkg.sv)
 // Custom Silicon Inference Accelerator for the 51.2M-Parameter YT-AI SLM
 // Target: SkyWater SKY130 (OpenLane 2 -> GDSII) & FPGA (Vivado / Yosys)
+//
+// Summary:
+// master constants.py + math_helpers.py file for the hardware.
+// It doesn not build any circuits by itself, but instead, every engine and controller 
+// in rtl/ imports it, so the entire chip agrees on the same sizes, addresses,
+// and math rules
 // =============================================================================
+
+// header guard so the file isn't compiled twice
 `ifndef YT_NPU_PKG_SV
 `define YT_NPU_PKG_SV
 
+// bundles all shared constants, enums, and helper functions into one namespace
 package yt_npu_pkg;
 
     // =========================================================================
@@ -15,13 +24,13 @@ package yt_npu_pkg;
     parameter int YT_HEADS       = 8;
     parameter int YT_HEAD_DIM    = 64;
     parameter int YT_HIDDEN      = 512;    // 8 heads x 64 dim
-    parameter int YT_HIDDEN_LOG2 = 9;      // 2^9 = 512 (enables divider-free LayerNorm)
-    parameter int YT_FFN_DIM     = 2048;   // 4 x 512 (executed in 4 fused 512-slices)
+    parameter int YT_HIDDEN_LOG2 = 9;      // 2^9 = 512 (enables divider-free LayerNorm via shifting right 9 bits)
+    parameter int YT_FFN_DIM     = 2048;   // 4 x 512 (executed in 4 fused 512-slices so intermediate vectors fit on-chip SRAM)
     parameter int YT_FFN_SLICE   = 512;
     parameter int YT_MAX_SEQ     = 512;    // Context window (stories cap ~500 tokens)
     parameter int YT_VOCAB_SIZE  = 50257;  // GPT-2 BPE vocabulary
     parameter int YT_VOCAB_PAD   = 50304;  // Padded to 64-token tile boundary (786 x 64)
-    parameter logic [15:0] YT_EOT_TOKEN = 16'd50256; // <|endoftext|>
+    parameter logic [15:0] YT_EOT_TOKEN = 16'd50256; // <|endoftext|> = 50256
 
     // =========================================================================
     // Hardware Compute Array & Precision Parameters (W8A16 + INT8 KV-Cache)
@@ -35,17 +44,23 @@ package yt_npu_pkg;
     parameter int ACC_W          = 32;     // INT32 signed accumulators & biases
 
     // Bus widths
-    parameter int AXI_DATA_W     = 128;    // 16 x INT8 or 8 x INT16 per beat
-    parameter int AXI_ADDR_W     = 32;     // 4 GB byte address space (64 MB used)
+    // AXI (Advanced eXtensible Interface) is basically like a USB inside chip
+    // It lets different hardware blocks like CPU, NPU, and DDR memory talk to each other
+
+    // 128 bit highway to external DDR RAM
+    parameter int AXI_DATA_W     = 128;    // moves 16 INT8 weights or 8 INT16 activations from DDR RAM to NPU each cycle
+    parameter int AXI_ADDR_W     = 32;     // capable of 4 GB byte address space in RAM (64 MB used by NPU)
     parameter int AXI_STRB_W     = AXI_DATA_W / 8;
-    parameter int AXI_ID_W       = 4;
-    parameter int AXIL_DATA_W    = 32;
-    parameter int AXIL_ADDR_W    = 32;
+    parameter int AXI_ID_W       = 4; // 4 bit transaction tag (0...15) used in AXI4 to match out of order responses to requests
+
+    // 32 bit highway connecting to a host CPU
+    parameter int AXIL_DATA_W    = 32; // every control register is 32 bits wide
+    parameter int AXIL_ADDR_W    = 32; // 32 bit address bus used by host CPU to select which register inside yt_axi_lite_regs.sv to read/write
 
     // =========================================================================
     // On-Chip SRAM Sizing (83 KB Total - Fits Single SKY130 MPW Die!)
     // =========================================================================
-    parameter int ACT_SRAM_WORDS   = 16384; // 16,384 x 16b = 32 KB (element-addressed)
+    parameter int ACT_SRAM_WORDS   = 16384; // 16,384 x 16b words = 32 KB (activations)
     parameter int ACT_ADDR_W       = 14;
     parameter int WGT_BANK_BEATS   = 1024;  // 1,024 x 128b = 16 KB per ping-pong bank
     parameter int WGT_TOTAL_BYTES  = 32768; // 2 x 16 KB = 32 KB total weight/KV tile SRAM
@@ -59,16 +74,17 @@ package yt_npu_pkg;
 
     // =========================================================================
     // External DDR Memory Map Base Offsets (64-Byte Aligned)
+    // basically hardcoded pointers telling DMA where everything lives in external RAM
     // =========================================================================
-    parameter logic [31:0] DDR_OFFSET_WTE    = 32'h0000_0000; // [50304, 512] INT8 (25.75 MB, tied w/ LM head)
-    parameter logic [31:0] DDR_OFFSET_WPE    = 32'h0189_0000; // [512, 512]   INT8 (256 KB)
-    parameter logic [31:0] DDR_OFFSET_BLOCKS = 32'h018D_0000; // 8 blocks x 0x0030_6000 stride
+    parameter logic [31:0] DDR_OFFSET_WTE    = 32'h0000_0000; // start address for token embeddings [50304, 512] INT8 (25.75 MB, tied w/ LM head)
+    parameter logic [31:0] DDR_OFFSET_WPE    = 32'h0189_0000; // start address for position embeddings [512, 512]   INT8 (256 KB)
+    parameter logic [31:0] DDR_OFFSET_BLOCKS = 32'h018D_0000; // start address for 8 transformer blocks. 8 blocks x 0x0030_6000 stride
     parameter logic [31:0] DDR_BLOCK_STRIDE  = 32'h0030_6000; // 3,170,304 B per block
     parameter logic [31:0] DDR_OFFSET_LNF    = 32'h0310_0000; // Final LN gamma/beta + scale table
     parameter logic [31:0] DDR_OFFSET_KV     = 32'h0320_0000; // 4.00 MB KV cache [8][8][2][512][64]
     parameter logic [31:0] DDR_OFFSET_OUT    = 32'h0360_0000; // Generated story token output ring
 
-    // Intra-block byte offsets
+    // Byte offsets inside a single transformer block (LN1, LN2, QKV,...) to know where each section lives
     parameter logic [31:0] BLK_OFF_LN1_PARAM = 32'h0000_0000; // 2048 B
     parameter logic [31:0] BLK_OFF_LN2_PARAM = 32'h0000_0800; // 2048 B
     parameter logic [31:0] BLK_OFF_QKV_BIAS  = 32'h0000_1000; // 6144 B
@@ -85,6 +101,7 @@ package yt_npu_pkg;
     // =========================================================================
     parameter int NUM_ENGINES = 8;
 
+    // enum assigning IDs 0 to 7 to the 8 hardware engines, so scoreboard can track while engine is currently busy
     typedef enum logic [2:0] {
         ENG_GEMM      = 3'd0,
         ENG_SOFTMAX   = 3'd1,
@@ -97,7 +114,44 @@ package yt_npu_pkg;
     } engine_id_t;
 
     // =========================================================================
-    // AXI4-Lite Host Register Map
+    // AXI4-Lite Host Register Map (Memory Mapped I/O)
+    // CPU is only able to read and write to addresses
+    // In memory mapped IO, if CPU wants to read or write to a specific address (address, value),
+    // it first goes through an address router, where each specific IO you want fits in a range of addresses.
+    // Example, DDR may be from 0x0000... and NPU may be from 0x00.. 0x5C
+    // if an CPU wants to write or read from an address anything between 0x00 to 0x5C, each specific address in this 
+    // range corresponds to a specific command that is controlled by yt_axi_llite_regs.sv, where most addresses just 
+    // save numbers to a flipflop 0x08 to 0x34, 0xh4c - 0xh5c send the 128 bit instruction, and so on
+    // These are 24 named addresses that let the host do 4 things
+    //      upload microcode program
+    //      set config
+    //      send input & read output tokens
+    //      press start and monitor progress
+    //   +-------------------------------------------------------------------------+
+    //   |                              HOST CPU                                   |
+    //   |  Only knows how to read/write 32-bit numbers to addresses (`addr, val`) |
+    //   +-------------------+-----------------------------------+-----------------+
+    //                       |                                   ^
+    //                       v (CPU issues read/write to addr)   | `irq` wire (1 bit: "I'm done!")
+    //            +----------+----------+                        |
+    //            |   ADDRESS ROUTER    |                        |
+    //            | (SoC Interconnect)  |                        |
+    //            +----+------------+---+                        |
+    //                 |            |                            |
+    //      addr is in |            | addr is in NPU's           |
+    //      RAM range  |            | range (base + 0x00..0x5C)  |
+    //      (0x0000..) |            |  --> THIS IS MMIO!         |
+    //                 v            v                            |
+    //    +-------------+----+   +---+----------------------------+-----------------+
+    //    |   EXTERNAL DDR   |   |  s_axil_* (32-bit AXI4-Lite Slave)               |
+    //    |     (64 MB)      |   |  -> `yt_axi_lite_regs.sv` (24 control slots)     |
+    //    |                  |   |                                                  |
+    //    | - 49 MB weights  |<=>|  m_axi_* (128-bit AXI4 Master DMA)               |
+    //    | - 4 MB KV-cache  |   |  -> `yt_axi_dma_rd/wr.sv` (1.6 GB/s bulk stream) |
+    //    +------------------+   |                                                  |
+    //                           |              YT-AI NPU (`yt_npu_top.sv`)         |
+    //                           +--------------------------------------------------+
+
     // =========================================================================
     parameter logic [7:0] REG_CTRL           = 8'h00; // [0]=start, [1]=soft_rst, [2]=autogen_mode, [3]=irq_en
     parameter logic [7:0] REG_STATUS         = 8'h04; // [0]=done, [1]=busy, [2]=err, [3]=eot_hit, [15:8]=tok_avail
@@ -128,6 +182,7 @@ package yt_npu_pkg;
     // Fixed-Point Helper Functions (Synthesizable)
     // =========================================================================
 
+    // clamping INT8 integers to [-128, 127]
     function automatic logic signed [7:0] saturate_i8(input logic signed [31:0] val);
         if (val > 32'sd127)
             return 8'sd127;
@@ -137,6 +192,7 @@ package yt_npu_pkg;
             return val[7:0];
     endfunction
 
+    // Clamping INT16 integers [-32768, 32767]
     function automatic logic signed [15:0] saturate_i16(input logic signed [31:0] val);
         if (val > 32'sd32767)
             return 16'sd32767;
@@ -146,6 +202,7 @@ package yt_npu_pkg;
             return val[15:0];
     endfunction
 
+    // clamping INT64 integers into INT16 integers [-32768, 32767]
     function automatic logic signed [15:0] saturate_i16_64(input logic signed [63:0] val);
         if (val > 64'sd32767)
             return 16'sd32767;
@@ -157,6 +214,7 @@ package yt_npu_pkg;
 
     // Requantize INT32 accumulator (+ INT32 bias) -> INT16 Q7.8 activation:
     // result_q78 = clamp_i16(((acc + bias) * mult_u8 + (1 << (shift-1))) >>> shift)
+    // INT32 -> INT16 (Q7.8)
     function automatic logic signed [15:0] requantize_q78(
         input logic signed [31:0] acc,
         input logic signed [31:0] bias,
@@ -178,8 +236,15 @@ package yt_npu_pkg;
         return saturate_i16_64(shifted);
     endfunction
 
-    // Pack Q7.8 INT16 activation into Q4.3 INT8 KV-cache format:
+    // Q7.8: Q (fixed point), and 7.8 tells you how the 16 bits are split around an imaginary decimal point.
+    //      It is a way to store decimals inside plain INT16, so NPU can do matrix multiplications using cheap 
+    //      integer circuits instead of expensive floating-point hardware.
+    // Pack Q7.8 INT16 activation into Q4.3 INT8 KV-cache format to halve KV-cache DDR bandwidth.
+    // KV-cache is is Keys and Value matrixes stored during attention, which is stored in external DDR.
+    // each clock cycle, we have to move those values from DDR to NPU via 128 bit channel. 128 / 8 bits = 16 bytes per cycle
+    // halving it means that KV cache is halved so its 2x faster to move data compared to Q7.8
     // kv_i8 = clamp_i8((val_q78 + 16) >>> 5)
+    // INT16 (Q7.8) -> INT8 (Q4.3)
     function automatic logic signed [7:0] pack_kv_q43(input logic signed [15:0] val_q78);
         logic signed [31:0] shifted;
         shifted = (32'(val_q78) + 32'sd16) >>> 5;
